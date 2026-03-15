@@ -1,0 +1,47 @@
+services:
+  timescaledb:
+    image: timescale/timescaledb:latest-pg18
+    container_name: finops_timescaledb
+    env_file:
+      - .env
+    environment:
+      POSTGRES_USER: ${DB_USER:-finops}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-finops_password}
+      POSTGRES_DB: ${DB_NAME:-finops_db}
+    ports:
+      - "${DB_HOST_PORT:-5432}:5432"
+    volumes:
+      - timescaledb_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: finops_rabbitmq
+    env_file:
+      - .env
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RMQ_USER:-finops}
+      RABBITMQ_DEFAULT_PASS: ${RMQ_PASSWORD:-finops_password}
+    ports:
+      - "${RMQ_HOST_PORT:-5672}:5672"
+      - "${RMQ_UI_PORT:-15672}:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    restart: unless-stopped
+
+  db_loader:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: finops_db_loader
+    env_file:
+      - .env
+    depends_on:
+      - timescaledb
+      - rabbitmq
+    command: ["python3", "data_collector/run_policies.py", "loader"]
+    restart: unless-stopped
+
+volumes:
+  timescaledb_data:
+  rabbitmq_data:
