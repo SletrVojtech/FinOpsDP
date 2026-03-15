@@ -1,0 +1,11 @@
+measure:
+  - resource: azure.vm
+    measurement:
+      - metric: Percentage CPU
+  - resource: azure.disk
+    measurement:
+      - metric: Composite Disk Write Bytes/sec
+      - metric: Composite Disk Read Bytes/sec
+  - resource: aws.ec2
+    measurement:
+      - metric: CPUUtilization
