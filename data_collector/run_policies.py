@@ -3,6 +3,7 @@ import logging
 import os
 import psycopg2
 import pika
+import schedule
 from dotenv import load_dotenv
 
 
@@ -42,6 +43,20 @@ def get_mq_channel():
     channel.queue_declare(queue="data_ingestion", durable=True)
     return connection, channel
 
+
+def run_scheduler():
+    log.info("Running scheduler")
+
+    schedule.every(1).hours.do(run_metrics_collector)
+    
+    schedule.every().day.at("01:00").do(run_kube_collection, hours_back=25)
+
+    schedule.every().day.at("03:00").do(run_cost_downloads)
+    
+    while True:
+        schedule.run_pending()
+        time.sleep(60)
+
 def main():
     parser = argparse.ArgumentParser(description="FinOps central collector CLI")
     subparsers = parser.add_subparsers(dest="command", help="Available modules:")
@@ -58,6 +73,10 @@ def main():
 
     # Metrics Collector
     subparsers.add_parser("metrics", help="Download metrics using Custodian and send to RMQ")
+
+    # Scheduler
+    subparsers.add_parser("scheduler", help="Run scheduler")
+
 
     args = parser.parse_args()
 
@@ -88,6 +107,11 @@ def main():
         log.info("Running metrics collection (using Custodian)...")
         run_metrics_collector()
         log.info("Done.")
+    elif args.command == "scheduler":
+        try:
+            run_scheduler()
+        except KeyboardInterrupt:
+            log.info("Closing...")
 
     else:
         parser.print_help()

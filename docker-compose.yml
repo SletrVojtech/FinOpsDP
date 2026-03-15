@@ -41,6 +41,18 @@ services:
       - rabbitmq
     command: ["python3", "data_collector/run_policies.py", "loader"]
     restart: unless-stopped
+  
+  scheduler:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: finops_scheduler
+    env_file:
+      - .env
+    depends_on:
+      - rabbitmq
+    command: ["python3", "data_collector/run_policies.py", "scheduler"]
+    restart: unless-stopped
 
 volumes:
   timescaledb_data:
