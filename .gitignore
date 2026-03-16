@@ -1,5 +1,6 @@
 .venv
-.env
+.env*
 .log
 .conf
 *.pyc
+.scripts

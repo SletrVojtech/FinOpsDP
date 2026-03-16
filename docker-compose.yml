@@ -14,12 +14,17 @@ services:
     volumes:
       - timescaledb_data:/var/lib/postgresql/data
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-finops} -d ${DB_NAME:-finops_db}"]
+      interval: 1s
+      timeout: 5s
+      retries: 10
 
   rabbitmq:
     image: rabbitmq:3-management
     container_name: finops_rabbitmq
     env_file:
-      - .env
+      - data_collector/.env.connector
     environment:
       RABBITMQ_DEFAULT_USER: ${RMQ_USER:-finops}
       RABBITMQ_DEFAULT_PASS: ${RMQ_PASSWORD:-finops_password}
@@ -29,31 +34,59 @@ services:
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
     restart: unless-stopped
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping
+      interval: 5s
+      timeout: 10s
+      retries: 5
+
+  db_init:
+    build:
+      context: ./data_collector
+      dockerfile: Dockerfile
+    container_name: finops_db_init
+    env_file:
+      - .env
+      - data_collector/.env.connector
+    command: ["python3", "db_init/db_init.py"]
+    restart: "no"
+    depends_on:
+      timescaledb:
+        condition: service_healthy
 
   db_loader:
     build: 
-      context: .
+      context: ./data_collector
       dockerfile: Dockerfile
     container_name: finops_db_loader
     env_file:
       - .env
-    depends_on:
-      - timescaledb
-      - rabbitmq
-    command: ["python3", "data_collector/run_policies.py", "loader"]
+      - data_collector/.env.connector
+    command: ["python3", "run_policies.py", "loader"]
     restart: unless-stopped
-  
+    depends_on:
+      db_init:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
+
   scheduler:
     build: 
-      context: .
+      context: ./data_collector
       dockerfile: Dockerfile
     container_name: finops_scheduler
     env_file:
       - .env
-    depends_on:
-      - rabbitmq
-    command: ["python3", "data_collector/run_policies.py", "scheduler"]
+      - data_collector/.env.connector
+    command: ["python3", "run_policies.py", "scheduler"]
     restart: unless-stopped
+    depends_on:
+      db_init:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
+
+
 
 volumes:
   timescaledb_data:

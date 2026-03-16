@@ -66,7 +66,6 @@ CREATE TABLE KubeMetrics (
     tsdb.hypertable,
     tsdb.segmentby = 'EntityId',
 );
-
 CREATE MATERIALIZED VIEW metrics_hourly
 WITH (timescaledb.continuous) AS
 SELECT

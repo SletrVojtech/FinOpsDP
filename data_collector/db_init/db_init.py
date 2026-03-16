@@ -2,7 +2,6 @@ import psycopg2
 import yaml
 import logging
 import os
-import re
 from dotenv import load_dotenv
 from table_templates import SCHEMA_DEFINITIONS, cagg_first_metrics,cagg_next_metrics
 

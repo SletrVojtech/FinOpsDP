@@ -18,7 +18,9 @@ class ConfigParser:
         
         frequency = self.user_config.get('run_frequency_hours', 1)
         granularity = self.user_config.get('granularity', 'PT5M')
+        granularity = 'PT1H'
         timeframe_hours = frequency + self.safety_overlap_hours
+        timeframe_hours = 1400
         
         # Iterate over user config
         for measure_block in self.user_config.get('measure', []):
