@@ -4,6 +4,7 @@ import os
 import psycopg2
 import pika
 import schedule
+import time
 from dotenv import load_dotenv
 
 
@@ -13,6 +14,8 @@ from db_loader.db_loader import DBLoader
 from metrics_collector.run_collection import run_metrics_collector
 from kube_collector.run_collection import run_kube_collection
 from cost_collector.run_collection import run_cost_downloads
+from metrics_collector.config_parser import ConfigParser
+
 
 
 log = logging.getLogger("finops_cli")
@@ -34,7 +37,7 @@ def get_mq_channel():
     )
     connection = pika.BlockingConnection(
         pika.ConnectionParameters(
-            host=os.getenv("RMQ_HOST", "localhost"),
+            host=os.getenv("RMQ_HOST", "rabbitmq"),
             port=int(os.getenv("RMQ_PORT", 5672)),
             credentials=credentials
         )
@@ -76,6 +79,8 @@ def main():
 
     # Scheduler
     subparsers.add_parser("scheduler", help="Run scheduler")
+        # Scheduler
+    subparsers.add_parser("parser", help="Run scheduler")
 
 
     args = parser.parse_args()
@@ -112,7 +117,6 @@ def main():
             run_scheduler()
         except KeyboardInterrupt:
             log.info("Closing...")
-
     else:
         parser.print_help()
 

@@ -1,11 +1,29 @@
+run_frequency_hours: 1
+granularity: "PT5M"
 measure:
   - resource: azure.vm
     measurement:
-      - metric: Percentage CPU
+      - metric: cpu_usage
+        aggregate: ["avg", "max"]
+      - metric: mem_available
+      - metric: net_in
+        aggregate: ["sum"]
+      - metric: net_out
+        aggregate: ["sum"]
   - resource: azure.disk
     measurement:
-      - metric: Composite Disk Write Bytes/sec
-      - metric: Composite Disk Read Bytes/sec
+      - metric: disk_write
+      - metric: disk_read
   - resource: aws.ec2
     measurement:
-      - metric: CPUUtilization
+      - metric: cpu_usage
+        aggregate: ["avg", "max"]
+      - metric: net_in
+        aggregate: ["sum"]
+      - metric: net_out
+        aggregate: ["sum"]
+  - resource: aws.ebs
+    measurement:
+      - metric: disk_write
+      - metric: disk_read
+

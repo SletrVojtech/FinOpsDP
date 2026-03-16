@@ -17,6 +17,8 @@ from policy import InMemoryPullMode
 from rabbitmq.connector import RabbitMQClient
 from rabbitmq.message import IngestionMessage
 from metrics_collector.message_adapters import AwsAdapter, AzureAdapter
+from metrics_collector.config_parser import ConfigParser
+
 
 
 
@@ -89,13 +91,13 @@ def run_account_in_memory(account, region, policy_data, output_dir, debug=False)
                                     account_id=account.get('account_id', 'unknown'),
                                     resource_type=res_type,
                                     region_name=region,
-                                    policy_name=policy.name
+                                    policy_name=policy.name,
                                 )
                             elif provider == 'azure':
                                 adapter = AzureAdapter(
                                     raw_resource,
                                     resource_type=res_type,
-                                    policy_name=policy.name
+                                    policy_name=policy.name,
                                 )
                             else:
                                 log.warning(f"Unknown cloud provider: {provider}")
@@ -146,22 +148,13 @@ def run_account_in_memory(account, region, policy_data, output_dir, debug=False)
 
 def run_metrics_collector():
     try:
-        with open("data_collector/conf/metrics.yml", 'r') as f:
-            metrics_conf = yaml.safe_load(f)
+        parser = ConfigParser()
+    
+        generated_policies = parser.generate_policies()
 
-        policies_list = []
-        for entry in metrics_conf.get('measure', []):
-            resource = entry['resource']
-            crafter = CrafterFactory.get_crafter(resource)
-
-            for metric in entry['measurement']:
-                policies_list.append(crafter.craft(
-                    resource=resource,
-                    metric=metric['metric'],
-                ))
 
         POLICY_DATA = {
-            "policies": policies_list
+            "policies": generated_policies
         }
 
     except Exception as e:
@@ -195,7 +188,7 @@ def run_metrics_collector():
     with ProcessPoolExecutor(max_workers=worker_count) as executor:
         futures = {}
         for account in accounts_iterator(accounts_config):
-            for region in resolve_regions(account.get('regions', ['us-east-1']), account):
+            for region in resolve_regions(account.get('regions', ['all']), account):
                 
                 future = executor.submit(
                     run_account_in_memory,

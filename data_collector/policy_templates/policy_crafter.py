@@ -4,19 +4,27 @@ import string
 class PolicyCrafter(ABC):
     """Abstract class for supported providers"""
 
-    def craft_name(self, resource, metric ):
+    def craft_name(self, resource, metric, aggregation='avg'):
         # Based on https://www.digitalocean.com/community/tutorials/python-remove-spaces-from-string
-        s = resource + '_' + metric
+        s = resource + '_' + metric + '_' + aggregation
         replacements = str.maketrans(
             {" ": "_", ".": "_", "-": "_", "/": "_", "\\": "_"}
             | {ord(c): None for c in string.whitespace})
         return s.translate(replacements)
             
     @abstractmethod
-    def craft(self, resource, metric, period):
+    def craft(self,resource: str, unified_name:str, metric: str,timeframe_hours: int, period: str = 'PT5M', agg='avg'):
         pass
 
 class AWSPolicyCrafter(PolicyCrafter):
+    AGGREGATION_MAP = {
+        'avg': 'Average',
+        'max': 'Maximum',
+        'min': 'Minimum',
+        'sum': 'Sum',
+        'count': 'SampleCount'
+    }
+
     def _get_period(self,period: str):
         """
         Based on allowed granularity for Azure policies in c7n_azure.filters.schema
@@ -34,35 +42,46 @@ class AWSPolicyCrafter(PolicyCrafter):
         return period_dict.get(period, 300)
 
 
-    def craft(self,resource: str, metric: str, period: str = 'PT5M'):
+    def craft(self,resource: str, unified_name:str, metric: str,timeframe_hours: int, period: str = 'PT5M', agg='avg'):
+        days_back = timeframe_hours / 24.0
+        aws_stat = self.AGGREGATION_MAP.get(agg.lower(), 'Average')
         POLICY_DATA = {
-        'name': self.craft_name(resource,metric), 
+        'name': self.craft_name(resource,unified_name, agg), 
         'resource': resource, 
         'filters': [{
              'type': 'metrics', 
              'name': metric, 
-             'days': 0.5, 
+             'days': days_back, 
              'period': self._get_period(period), 
              'value': 0,
              'missing-value': 0,
-             'statistics': 'Average',
+             'statistics': aws_stat,
              'op': 'ge'
              }]
         }
         return POLICY_DATA
 
 class AzurePolicyCrafter(PolicyCrafter):
-    def craft(self, resource: str, metric: str, period: str = 'PT5M'):
+    AGGREGATION_MAP = {
+        'avg': 'average',
+        'max': 'maximum',
+        'min': 'minimum',
+        'sum': 'total',
+        'count': 'count'
+    }
+
+    def craft(self,resource: str, unified_name:str, metric: str,timeframe_hours: int, period: str = 'PT5M', agg='avg'):
+        azure_stat = self.AGGREGATION_MAP.get(agg.lower(), 'average')
         POLICY_DATA = {
-            'name':  self.craft_name(resource,metric),
+            'name':  self.craft_name(resource,unified_name, agg),
             'resource': resource,
             'filters': [{
                 'type': 'metric',
                 'metric': metric, 
-                'aggregation': 'average', 
+                'aggregation': azure_stat, 
                 'op': 'ge', 
                 'threshold': 0, 
-                'timeframe': 1, 
+                'timeframe': timeframe_hours, 
                 'interval': period,
                 'no_data_action': 'to_zero'
                 },]

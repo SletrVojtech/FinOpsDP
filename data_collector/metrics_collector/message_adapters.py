@@ -120,13 +120,18 @@ class AzureAdapter(BaseCloudAdapter):
         clean_datapoints = []
         try:
             timeseries_data = data["metrics_data"]["value"][0]["timeseries"][0]["data"]
+
             policy_aggregation = self.kwargs.get("policy_aggregation", "average")
             for point in timeseries_data:
                 time = (datetime.datetime.fromisoformat(point["time_stamp"]).timestamp()//300)*300
 
                 clean_datapoints.append({
                     "timestamp": datetime.datetime.fromtimestamp(time).isoformat(),
-                    "value": point.get(policy_aggregation, 0.0)
+                    "value": point.get("average",
+                                        point.get("maximum",
+                                        point.get("minimum",
+                                        point.get("total",
+                                        point.get("count", 0.0)))))
                 })
         except (KeyError, IndexError):
             pass
@@ -193,11 +198,14 @@ class AwsAdapter(BaseCloudAdapter):
 
         clean_datapoints = []
         for point in data_list:
-            policy_aggregation = self.kwargs.get("policy_aggregation", "Average")
             time = (datetime.datetime.fromisoformat(str(point["Timestamp"])).timestamp()//300)*300
             clean_datapoints.append({
                 "timestamp": datetime.datetime.fromtimestamp(time).isoformat(),
-                "value": point.get(policy_aggregation, 0.0)
+                "value": point.get("Average",
+                                        point.get("Maximum",
+                                        point.get("Minimum",
+                                        point.get("Sum",
+                                        point.get("SampleCount", 0.0)))))
             })
             
         return clean_datapoints

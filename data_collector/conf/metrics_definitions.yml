@@ -1,0 +1,21 @@
+metrics_dictionary:
+  cpu_usage:
+    aws: "CPUUtilization"
+    azure: "Percentage CPU"
+  disk_write:
+    # for azure.disk and aws.EBS
+    aws: "VolumeWriteBytes"
+    azure: "Composite Disk Write Bytes/sec"
+  disk_read:
+    # for azure.disk and aws.EBS
+    aws: "VolumeReadBytes"
+    azure: "Composite Disk Read Bytes/sec"
+  mem_available:
+    azure: "Available Memory Percentage"
+    # aws doesn't export natively
+  net_in:
+    azure: "Network In Total"
+    aws: "NetworkIn"
+  net_out:
+    azure: "Network Out Total"
+    aws: "NetworkOut"
