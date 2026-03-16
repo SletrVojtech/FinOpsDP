@@ -1,0 +1,24 @@
+data_hierarchy:
+  metrics:
+    raw_table: "metrics"
+    raw_interval: "5 minutes"
+    raw_retention: "7 days"
+    aggregates:
+      - name: "metrics_hourly"
+        interval: "1 hour"
+        retention: "1 month"
+        refresh_window: "2 days"
+      - name: "metrics_daily"
+        interval: "1 day"
+        retention: "2 years"
+        refresh_window: "14 days"
+  kubemetrics:
+    raw_table: "kubemetrics"
+    raw_interval: "1 hour"
+    raw_retention: "6 months"
+    # aggregates aren't currently set up. 
+  costs:
+    raw_table: "costs"
+    raw_interval: "1 day"
+    raw_retention: "3 years"
+    # aggregates aren't currently set up.
