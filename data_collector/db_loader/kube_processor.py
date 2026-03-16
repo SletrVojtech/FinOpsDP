@@ -37,7 +37,7 @@ class KubeProcessor:
             (
                 entity_id,
                 datetime.fromtimestamp(dp.timestamp),
-                payload.metric_name,
+                payload.metric_name.lower(),
                 dp.value,
                 tags_json # Tags are stored in-time
             )
@@ -53,10 +53,10 @@ class KubeProcessor:
             Returns entity ID.
         """
         provider = payload.cloud_provider
-        acc_id = payload.account_id
-        resource_id = payload.resource_id
+        acc_id = payload.account_id.lower()
+        resource_id = payload.resource_id.lower()
         cluster_id = ':'.join(resource_id.split(':')[:-1])
-        cluster_name = payload.tags.get('cluster', 'unknown-cluster')
+        cluster_name = payload.tags.get('cluster', 'unknown-cluster').lower()
 
         parent_id = None
         
@@ -68,7 +68,7 @@ class KubeProcessor:
                 rg_name = parts[4]
                 # Create subscription and resource group entity
                 parent_id = self._upsert_entity(f"/subscriptions/{sub_id}",provider,sub_id, "subscription", None)
-                parent_id = self._upsert_entity(f"/subscriptions/{sub_id}/resourceGroups/{rg_name}",provider,rg_name, "resource_group", parent_id)
+                parent_id = self._upsert_entity(f"/subscriptions/{sub_id}/resourcegroups/{rg_name}",provider,rg_name, "resource_group", parent_id)
                 
         elif provider == "aws":
             # AWS hierarchy is account-id only
@@ -98,8 +98,8 @@ class KubeProcessor:
         self.cursor.execute(query, (
             payload.resource_id, 
             provider, 
-            payload.resource_name, 
-            payload.resource_type, 
+            payload.resource_name.lower(), 
+            payload.resource_type.lower(), 
             cluster_db_id, 
             tags_json
         ))
@@ -113,7 +113,9 @@ class KubeProcessor:
             ON CONFLICT (ExternalId) DO UPDATE SET ParentId = EXCLUDED.ParentId
             RETURNING Id;
         """
-        self.cursor.execute(query, (ext_id, provider, res_name, res_type, parent_id))
+        if not res_name or res_name == "None":
+            res_name = ext_id
+        self.cursor.execute(query, (ext_id.lower(), provider.lower(), res_name.lower(), res_type.lower(), parent_id))
         return self.cursor.fetchone()[0]
 
     def _insert_metrics(self, values: list):

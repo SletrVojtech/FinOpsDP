@@ -46,7 +46,7 @@ class MetricsProcessor:
                 rg_name = parts[4]
                 # Create subscription and resource group entity
                 parent_id = self._upsert_entity(f"/subscriptions/{sub_id}",sub_id, "subscription", "0", None, provider)
-                parent_id = self._upsert_entity(f"/subscriptions/{sub_id}/resourceGroups/{rg_name}",rg_name, "resource_group", "0", parent_id, provider)
+                parent_id = self._upsert_entity(f"/subscriptions/{sub_id}/resourcegroups/{rg_name}",rg_name, "resource_group", "0", parent_id, provider)
                 
         elif provider == "aws":
             # AWS hierarchy is account-id only
@@ -79,7 +79,9 @@ class MetricsProcessor:
             WHERE entities.MetaHash != EXCLUDED.MetaHash
             RETURNING Id;
         """
-        self.cursor.execute(query, (resource_id, res_name,res_type, parent_id, meta_hash, tags, extras, provider))
+        if not res_name or res_name == "None":
+            res_name = resource_id
+        self.cursor.execute(query, (resource_id.lower(), res_name.lower(),res_type.lower(), parent_id, meta_hash, tags, extras, provider))
         result = self.cursor.fetchone()
         
         if result:
@@ -97,6 +99,6 @@ class MetricsProcessor:
         "DO NOTHING;"
         
         # Parse the datapoint entries into tuples
-        values = [(entity_id, metric_name, dp['timestamp'], dp['value'], interval) for dp in datapoints]
+        values = [(entity_id, metric_name.lower(), dp['timestamp'], dp['value'], interval) for dp in datapoints]
         
         execute_values(self.cursor, query, values)

@@ -41,9 +41,9 @@ class CostsProcessor:
                 record.billing_currency,
                 record.charge_period_start,
                 record.charge_period_end,
-                record.service_category,
-                record.service_name,
-                record.sku_price_id,
+                record.service_category.lower(),
+                record.service_name.lower(),
+                record.sku_price_id.lower(),
             ))
 
         if cost_values:
@@ -79,7 +79,7 @@ class CostsProcessor:
                 # Get ResourceGroup
                 if parts[3].lower() == 'resourcegroups':
                     rg_name = parts[4]
-                    rg_ext_id = f"/subscriptions/{sub_id}/resourceGroups/{rg_name}"
+                    rg_ext_id = f"/subscriptions/{sub_id}/resourcegroups/{rg_name}"
                     if rg_ext_id not in cache:
                         cache[rg_ext_id] = self._upsert_single_parent(rg_ext_id, provider, rg_name, "resource_group", sub_db_id)
                     return cache[rg_ext_id]
@@ -102,7 +102,9 @@ class CostsProcessor:
             ON CONFLICT (ExternalId) DO UPDATE SET ParentId = EXCLUDED.ParentId
             RETURNING Id;
         """
-        self.cursor.execute(query, (ext_id, provider, name, res_type, parent_id))
+        if not name or name== "None":
+            name = ext_id
+        self.cursor.execute(query, (ext_id.lower(), provider.lower(), name.lower(), res_type.lower(), parent_id))
         return self.cursor.fetchone()[0]
 
     def _resolve_entities_bulk(self, records) -> dict:
@@ -130,11 +132,13 @@ class CostsProcessor:
 
         for rec in unique_entities.values():
             parent_id = self._get_or_create_parent(rec, parent_cache)
+            if not rec.resource_name or rec.resource_name == "None":
+                rec.resource_name = rec.resource_id
             entity_values.append((
-                rec.resource_id,
-                rec.provider,
-                rec.resource_name,
-                rec.resource_type,
+                rec.resource_id.lower(),
+                rec.provider.lower(),
+                rec.resource_name.lower(),
+                rec.resource_type.lower(),
                 parent_id,
                 json.dumps(rec.tags) if rec.tags else "{}",
                 rec.region_id

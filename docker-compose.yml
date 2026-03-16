@@ -24,7 +24,7 @@ services:
     image: rabbitmq:3-management
     container_name: finops_rabbitmq
     env_file:
-      - data_collector/.env.connector
+      - data_collector/.env.collector
     environment:
       RABBITMQ_DEFAULT_USER: ${RMQ_USER:-finops}
       RABBITMQ_DEFAULT_PASS: ${RMQ_PASSWORD:-finops_password}
@@ -47,7 +47,7 @@ services:
     container_name: finops_db_init
     env_file:
       - .env
-      - data_collector/.env.connector
+      - data_collector/.env.collector
     command: ["python3", "db_init/db_init.py"]
     restart: "no"
     depends_on:
@@ -61,7 +61,7 @@ services:
     container_name: finops_db_loader
     env_file:
       - .env
-      - data_collector/.env.connector
+      - data_collector/.env.collector
     command: ["python3", "run_policies.py", "loader"]
     restart: unless-stopped
     depends_on:
@@ -77,7 +77,7 @@ services:
     container_name: finops_scheduler
     env_file:
       - .env
-      - data_collector/.env.connector
+      - data_collector/.env.collector
     command: ["python3", "run_policies.py", "scheduler"]
     restart: unless-stopped
     depends_on:
