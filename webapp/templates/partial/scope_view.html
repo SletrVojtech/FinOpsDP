@@ -1,0 +1,66 @@
+<div class="chain">
+    <a hx-get="/ui/scope/" hx-target="#app-content" hx-swap="innerHTML">Vše</a>
+    {% for node in chain %}
+        <span> > </span>
+        <a hx-get="/ui/scope/{{ node.id }}" hx-target="#app-content" hx-swap="innerHTML">{{ node.name }}</a>
+    {% endfor %}
+</div>
+
+{% if active_tags %}
+<div>
+    <strong>Aktivní filtry:</strong>
+    <div>
+        {% for key, value in active_tags.items() %}
+            <span>
+                {{ key }}: <strong>{{ value }}</strong>
+                
+                <a hx-get="/ui/scope/{{ current_scope_id }}?{% for k, v in active_tags.items() %}{% if k != key %}tag_{{ k }}={{ v }}&{% endif %}{% endfor %}"
+                   hx-target="#app-content" hx-swap="innerHTML">
+                   ✖
+                </a>
+            </span>
+        {% endfor %}
+    </div>
+    
+    <a hx-get="/ui/scope/{{ current_scope_id }}" hx-target="#app-content" hx-swap="innerHTML">
+       Zrušit všechny filtry
+    </a>
+</div>
+{% endif %}
+
+<div class="filter-bar">
+    <strong>Přidat filtr podle tagu:</strong>
+    <select name="tag_key"
+            hx-get="/ui/tag_values?scope_id={{ current_scope_id }}&current_qs={{ current_qs | urlencode }}"
+            hx-target="#tag-values-container"
+            hx-trigger="change">
+        <option value="">Vyberte další tag</option>
+        {% for tag in top_tags %}
+            {% if tag.key not in active_tags %}
+                <option value="{{ tag.key }}">{{ tag.key }}</option>
+            {% endif %}
+        {% endfor %}
+    </select>
+    
+    <div id="tag-values-container" style="margin-top: 10px;"></div>
+</div>
+
+<ul class="list">
+    {% for item in items %}
+        <li>
+                {% if item.has_children and not active_tags %}
+                    <button class="drill-btn"
+                            hx-get="/ui/scope/{{ item.id }}" 
+                            hx-target="#app-content" 
+                            hx-swap="innerHTML">
+                        {{ item.name }}
+                    </button>
+                {% else %}
+                    <span>{{ item.name }}</span>
+                {% endif %}
+            <span>{{ item.type }}</span>
+        </li>
+    {% else %}
+        <li>Této kombinaci filtrů nevyhovují žádné zdroje.</li>
+    {% endfor %}
+</ul>
