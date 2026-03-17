@@ -97,7 +97,8 @@ class MetricsProcessor:
         query = "INSERT INTO metrics (EntityId, MetricType, Timestamp, Value, IntervalMinutes) VALUES %s" \
         "ON CONFLICT (EntityId, MetricType, Timestamp) " \
         "DO NOTHING;"
-        
+        # Unify the metric name accross different resource_types. 
+        metric_name = "_".join(metric_name.split("_")[1:])
         # Parse the datapoint entries into tuples
         values = [(entity_id, metric_name.lower(), dp['timestamp'], dp['value'], interval) for dp in datapoints]
         

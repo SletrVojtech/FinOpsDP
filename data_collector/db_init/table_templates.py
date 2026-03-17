@@ -6,6 +6,7 @@ SCHEMA_DEFINITIONS = {
     CREATE TABLE DataDictionary (
         TableName VARCHAR(100) PRIMARY KEY,
         DataType VARCHAR(50),      -- 'metric', 'cost', 'kube'
+        IsCagg BOOLEAN,
         Granularity INTERVAL,
         RetentionDuration INTERVAL
     );

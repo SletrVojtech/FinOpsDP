@@ -2,6 +2,7 @@ import psycopg2
 import yaml
 import logging
 import os
+import time
 from dotenv import load_dotenv
 from table_templates import SCHEMA_DEFINITIONS, cagg_first_metrics,cagg_next_metrics
 
@@ -14,14 +15,27 @@ class DatabaseInitializer:
     def __init__(self, config_path: str):
         with open(config_path, 'r') as f:
             self.config = yaml.safe_load(f)
+
+        max_retries = 5
+        retry_delay = 3
+        
+        for attempt in range(max_retries):
+            try:
             
-        self.conn = psycopg2.connect(
-            host=os.getenv("DB_HOST", "localhost"),
-            port=os.getenv("DB_PORT", "5432"),
-            user=os.getenv("DB_USER", "finops"),
-            password=os.getenv("DB_PASSWORD", "finops_password"),
-            database=os.getenv("DB_NAME", "finops_db")
-        )
+                self.conn = psycopg2.connect(
+                    host=os.getenv("DB_HOST", "localhost"),
+                    port=os.getenv("DB_PORT", "5432"),
+                    user=os.getenv("DB_USER", "finops"),
+                    password=os.getenv("DB_PASSWORD", "finops_password"),
+                    database=os.getenv("DB_NAME", "finops_db")
+                )
+                break
+            except psycopg2.OperationalError as e:
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay)
+                else:
+                    print("Critical error when connecting to the database.")
+                    raise e
         self.conn.autocommit = True
         self.cursor = self.conn.cursor()
 
@@ -57,17 +71,17 @@ class DatabaseInitializer:
         return val * UNIT_MULTIPLIERS[unit]
 
 
-    def upsert_dictionary_entry(self, table_name: str, data_type: str, granularity: str, retention: str):
+    def upsert_dictionary_entry(self, table_name: str, data_type: str, granularity: str, retention: str, is_cagg: bool = False):
         """Upsert information about retention policies for each table and CAGG"""
         log.info(f"Updating retention policy metadata for'{table_name}.'")
         self.cursor.execute("""
-            INSERT INTO DataDictionary (TableName, DataType, Granularity, RetentionDuration)
-            VALUES (%s, %s, %s::interval, %s::interval)
+            INSERT INTO DataDictionary (TableName, DataType, Granularity, RetentionDuration, IsCagg)
+            VALUES (%s, %s, %s::interval, %s::interval, %s)
             ON CONFLICT (TableName) DO UPDATE 
             SET DataType = EXCLUDED.DataType,
                 Granularity = EXCLUDED.Granularity,
                 RetentionDuration = EXCLUDED.RetentionDuration;
-        """, (table_name.lower(), data_type, granularity, retention))
+        """, (table_name.lower(), data_type, granularity, retention, is_cagg))
 
     def _check_time_hierarchy(self, interval, previous_interval):
         interval_seconds = self._to_seconds(interval)
@@ -89,7 +103,6 @@ class DatabaseInitializer:
         tables = self.config.get('data_hierarchy', {})
         
         for table_hierarchy_name, config in tables.items():
-            data_type = config.get('data_type', 'metric')
             
             # Set up retention for raw data table
             raw_table = config['raw_table']
@@ -102,7 +115,7 @@ class DatabaseInitializer:
             previous_interval = config['raw_interval']
             previous_table = raw_table
 
-            self.upsert_dictionary_entry(raw_table, data_type, previous_interval, raw_retention)
+            self.upsert_dictionary_entry(raw_table, table_hierarchy_name, previous_interval, raw_retention)
 
 
             # Aggregates            
@@ -145,7 +158,7 @@ class DatabaseInitializer:
                     self.cursor.execute(f"SELECT add_retention_policy('{view_name}', INTERVAL '{retention}');")
                     log.info(f"Retention set to {retention}")
 
-                self.upsert_dictionary_entry(view_name, data_type, interval, retention)
+                self.upsert_dictionary_entry(view_name, table_hierarchy_name, interval, retention, True)
                 previous_interval = interval
                 previous_table = view_name
 

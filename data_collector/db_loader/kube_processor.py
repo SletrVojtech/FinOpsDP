@@ -110,7 +110,7 @@ class KubeProcessor:
         query = """
             INSERT INTO Entities (ExternalId, ProviderName, ResourceName, ResourceType, ParentId)
             VALUES (%s, %s, %s, %s, %s)
-            ON CONFLICT (ExternalId) DO UPDATE SET ParentId = EXCLUDED.ParentId
+            ON CONFLICT (ExternalId) DO UPDATE SET ParentId = EXCLUDED.ParentId, ResourceType = EXCLUDED.ResourceType
             RETURNING Id;
         """
         if not res_name or res_name == "None":

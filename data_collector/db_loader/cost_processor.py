@@ -30,7 +30,7 @@ class CostsProcessor:
         # Prepare bulk insert
         cost_values = []
         for record in batch.records:
-            entity_id = entity_map.get(record.resource_id)
+            entity_id = entity_map.get(record.resource_id.tolower())
             if not entity_id:
                 log.warning(f"Couldn't find entity for resource: {record.resource_id}")
                 continue
