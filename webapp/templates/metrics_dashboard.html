@@ -1,0 +1,104 @@
+<div>
+    
+    <button hx-get="/ui/scope/{{ scope_id if scope_id else '' }}?{{ current_qs }}"
+            hx-target="#app-content"
+            hx-swap="innerHTML">
+        Zpět na seznam zdrojů
+    </button>
+
+    <h2>Detailní metriky: {{ entity_name }}</h2>
+    <p >ID zdroje: {{ entity_id }}</p>
+
+    <div id="charts-container" >
+        {% for metric in available_metrics %}
+            <div >
+                <h3>{{ metric }}</h3>
+                <canvas class="metric-chart" data-entity="{{ entity_id }}" data-metric="{{ metric }}"></canvas>
+            </div>
+        {% else %}
+            <p>Nenalezeny žádné metriky k vykreslení.</p>
+        {% endfor %}
+    </div>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<script>
+    // Mapping of the charted value per metric name
+    function getChartConfig(metricName) {
+        const nameLower = metricName.toLowerCase();
+        
+        if (nameLower.includes('max')) {
+            return [{ key: 'max', label: 'Maximum', color: 'red' }];
+        } 
+        else if (nameLower.includes('sum')) {
+            return [{ key: 'sum', label: 'Celkem (Sum)', color: 'green' }];
+        }
+        else if (nameLower.includes('avg')) {
+            return [{ key: 'avg', label: 'Průměr (Avg)', color: 'blue' }];
+        }
+        else if (nameLower.includes('min')) {
+            return [{ key: 'min', label: 'Minimum', color: 'light-blue' }];
+        }
+        else {
+            return [
+                { key: 'avg', label: 'Průměr', color: 'blue' },
+                { key: 'max', label: 'Maximum', color: 'red' }
+            ];
+        }
+    }
+    // Based on https://www.chartjs.org/docs/latest/getting-started/usage.html
+    // Chart creation logic
+    document.querySelectorAll('.metric-chart').forEach(async (canvas) => {
+        const entityId = canvas.dataset.entity;
+        const metricName = canvas.dataset.metric;
+
+        try {
+            // Get data for given metric name
+            const response = await fetch(`/api/v1/metrics/${entityId}/data?metric_name=${metricName}&time_range=7 days&granularity=1 hour`);
+            const result = await response.json();
+            const dataPoints = result.data_points;
+            
+            // X axis
+            const labels = dataPoints.map(dp => {
+                const date = new Date(dp.time);
+                return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+            });
+
+            const configMap = getChartConfig(metricName);
+            
+            // Get data for Y axis based on metric name
+            const datasets = configMap.map(config => {
+                return {
+                    label: config.label,
+                    data: dataPoints.map(dp => dp[config.key]), 
+                    borderColor: config.color,
+                    backgroundColor: config.color.replace('1)', '0.1)'),
+                    borderWidth: 2,
+                    fill: false,
+                    tension: 0.3
+                };
+            });
+
+            // Plotting by Chart.js
+            new Chart(canvas, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: datasets
+                },
+                options: {
+                    responsive: true,
+                    interaction: { mode: 'index', intersect: false },
+                    scales: {
+                        y: { beginAtZero: true }
+                    }
+                }
+            });
+            
+        } catch (error) {
+            console.error(`Error during chart creation: ${metricName}:`, error);
+        }
+    });
+</script>

@@ -3,7 +3,7 @@ from fastapi import APIRouter, Request, Depends
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from db.database import get_db_cursor
-from crud import entities
+from crud import entities, metrics
 
 router = APIRouter(tags=["Web UI"])
 templates = Jinja2Templates(directory="templates")
@@ -61,4 +61,24 @@ def get_tag_values(request: Request, scope_id: str = "", tag_key: str = None, cu
         "tag_key": tag_key,
         "values": values,
         "current_qs": current_qs
+    })
+
+@router.get("/ui/metrics/{entity_id}", response_class=HTMLResponse)
+def view_metrics_dashboard(request: Request, entity_id: int, current_qs: str = "",
+                            scope_id: str = "", cursor = Depends(get_db_cursor)):
+    """Shows a page with metrics dashboard for given entity"""
+    
+    available_metrics = metrics.get_available_metric_names(cursor, entity_id)
+    
+    # Get the resource name
+    cursor.execute("SELECT ResourceName FROM Entities WHERE Id = %s", (entity_id,))
+    entity_name = cursor.fetchone()[0]
+
+    return templates.TemplateResponse("metrics_dashboard.html", {
+        "request": request,
+        "entity_id": entity_id,
+        "entity_name": entity_name,
+        "available_metrics": available_metrics,
+        "current_qs": current_qs,
+        "scope_id": scope_id
     })

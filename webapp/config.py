@@ -1,5 +1,9 @@
 import os
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 class AppConfig:
     # Prepared for implementing web modules 
     ENABLE_METRICS = os.getenv("ENABLE_METRICS", "True").lower() == "true"

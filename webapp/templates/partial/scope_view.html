@@ -48,7 +48,8 @@
 <ul class="list">
     {% for item in items %}
         <li>
-                {% if item.has_children and not active_tags %}
+            <div></div>
+            {% if item.has_children and not active_tags %}
                     <button class="drill-btn"
                             hx-get="/ui/scope/{{ item.id }}" 
                             hx-target="#app-content" 
@@ -59,6 +60,19 @@
                     <span>{{ item.name }}</span>
                 {% endif %}
             <span>{{ item.type }}</span>
+
+            <div> 
+                <div>
+                {% if item.has_metrics %}
+                    <button hx-get="/ui/metrics/{{ item.id }}?scope_id={{ current_scope_id }}&current_qs={{ current_qs | urlencode }}"
+                            hx-target="#app-content"
+                            hx-swap="innerHTML">
+                        Zobrazit metriky
+                    </button>
+                {% endif %}
+            </div>
+            </div>
+
         </li>
     {% else %}
         <li>Této kombinaci filtrů nevyhovují žádné zdroje.</li>

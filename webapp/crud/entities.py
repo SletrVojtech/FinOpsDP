@@ -2,6 +2,8 @@
 SQL queries for navigating the Entities hierarchy.
 """
 
+from config import AppConfig
+
 def get_roots(cursor):
     """Return roots of the hierarchy.(subscriptions)"""
     cursor.execute("""
@@ -142,9 +144,23 @@ def get_dynamic_items(cursor, scope_id: int = None, tags_filter: dict = None):
             )
         """
 
-    # Query building with tags stored in JSONB
-    query = base_sql + " SELECT Id, ResourceName, Type, has_children, ParentId FROM BaseData WHERE 1=1"
-    
+    if AppConfig.ENABLE_METRICS:
+            query = base_sql + """ 
+        SELECT 
+            b.Id, 
+            b.ResourceName, 
+            b.Type, 
+            b.has_children, 
+            b.ParentId,
+            EXISTS(SELECT 1 FROM Metrics m WHERE m.EntityId = b.Id) as has_metrics 
+        FROM BaseData b 
+        WHERE 1=1
+    """ 
+    else:
+        query = base_sql + " SELECT Id, ResourceName, Type, has_children, False as has_metrics FROM BaseData WHERE 1=1"
+
+    # Query building with tags stored in JSONB, check if given entity has some measurements saved.
+   
     for key, value in tags_filter.items():
         query += " AND Tags->>%s = %s"
         params.extend([key, value])
@@ -152,7 +168,7 @@ def get_dynamic_items(cursor, scope_id: int = None, tags_filter: dict = None):
     query += " ORDER BY Type, ResourceName;"
     
     cursor.execute(query, params)
-    return [{"id": r[0], "name": r[1], "type": r[2], "has_children": r[3], "parent_id": r[4]} for r in cursor.fetchall()]
+    return [{"id": r[0], "name": r[1], "type": r[2], "has_children": r[3], "parent_id": r[4], "has_metrics": r[5]} for r in cursor.fetchall()]
 
 def get_scoped_tag_values(cursor, parent_id: int, tag_key: str):
     """
