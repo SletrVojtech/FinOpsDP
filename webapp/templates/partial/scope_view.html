@@ -45,6 +45,14 @@
     <div id="tag-values-container" style="margin-top: 10px;"></div>
 </div>
 
+<div style="margin-bottom: 20px;">
+    <button hx-get="/ui/chargeback?scope_id={{ current_scope_id if current_scope_id else '' }}&current_qs={{ current_qs | urlencode }}"
+            hx-target="#app-content"
+            hx-swap="innerHTML">
+        Zobrazit Chargeback pro tento výběr
+    </button>
+</div>
+
 <ul class="list">
     {% for item in items %}
         <li>

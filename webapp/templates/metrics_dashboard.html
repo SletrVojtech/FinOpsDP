@@ -9,6 +9,26 @@
     <h2>Detailní metriky: {{ entity_name }}</h2>
     <p >ID zdroje: {{ entity_id }}</p>
 
+
+    <div >
+        <div>
+            <label for="timeRangeSelect" style="font-weight: bold; margin-right: 10px;">Časové okno:</label>
+            <select id="timeRangeSelect" style="padding: 5px;">
+                <option value="24 hours">Posledních 24 hodin</option>
+                <option value="7 days" selected>Posledních 7 dní</option>
+                <option value="30 days">Posledních 30 dní</option>
+            </select>
+        </div>
+        <div>
+            <label for="granularitySelect" style="font-weight: bold; margin-right: 10px;">Granularita:</label>
+            <select id="granularitySelect" style="padding: 5px;">
+                <option value="5 minutes">5 minut</option>
+                <option value="1 hour" selected>1 hodina</option>
+                <option value="1 day">1 den</option>
+            </select>
+        </div>
+    </div>
+
     <div id="charts-container" >
         {% for metric in available_metrics %}
             <div >
@@ -25,6 +45,7 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
 <script>
+    window.chartInstances = window.chartInstances || {};
     // Mapping of the charted value per metric name
     function getChartConfig(metricName) {
         const nameLower = metricName.toLowerCase();
@@ -48,15 +69,26 @@
             ];
         }
     }
+
+async function renderAllCharts() {
+    const timeRange = document.getElementById('timeRangeSelect').value;
+    const granularity = document.getElementById('granularitySelect').value;
+
     // Based on https://www.chartjs.org/docs/latest/getting-started/usage.html
     // Chart creation logic
     document.querySelectorAll('.metric-chart').forEach(async (canvas) => {
         const entityId = canvas.dataset.entity;
         const metricName = canvas.dataset.metric;
+        const chartId = entityId + '_' + metricName;
 
         try {
+
+            if (chartInstances[chartId]) {
+                    chartInstances[chartId].destroy();
+                }
+
             // Get data for given metric name
-            const response = await fetch(`/api/v1/metrics/${entityId}/data?metric_name=${metricName}&time_range=7 days&granularity=1 hour`);
+            const response = await fetch(`/api/v1/metrics/${entityId}/data?metric_name=${metricName}&time_range=${timeRange}&granularity=${granularity}`);
             const result = await response.json();
             const dataPoints = result.data_points;
             
@@ -82,7 +114,7 @@
             });
 
             // Plotting by Chart.js
-            new Chart(canvas, {
+            chartInstances[chartId] = new Chart(canvas, {
                 type: 'line',
                 data: {
                     labels: labels,
@@ -101,4 +133,12 @@
             console.error(`Error during chart creation: ${metricName}:`, error);
         }
     });
+    }
+
+    // Recalculate on change
+    document.getElementById('timeRangeSelect').addEventListener('change', renderAllCharts);
+    document.getElementById('granularitySelect').addEventListener('change', renderAllCharts);
+
+    // Chart the first time
+    renderAllCharts();
 </script>

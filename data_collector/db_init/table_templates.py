@@ -76,10 +76,10 @@ SCHEMA_DEFINITIONS = {
     "budgets":"""
     CREATE TABLE Budgets (
         Id SERIAL PRIMARY KEY,
-        EntityId INTEGER REFERENCES Entities(Id),
+        ScopeId INTEGER REFERENCES Entities(Id),
+        Tags JSONB,                           
         LimitAmount DECIMAL(18, 4),
-        BillingPeriodStart DATE,
-        BillingPeriodEnd DATE
+        PeriodMonth DATE                        
     );
     """
 }

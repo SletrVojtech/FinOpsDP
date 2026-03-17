@@ -1,7 +1,10 @@
 from fastapi import APIRouter, Depends
 from db.database import get_db_cursor
 from crud import entities, metrics
-from fastapi import Query
+from fastapi import Query, Request
+from services import cost_service
+from services.utils import extract_active_tags
+
 
 
 # This router will have all paths with "/api/v1" prefix
@@ -43,3 +46,18 @@ def api_get_metric_data(entity_id: int, metric_name: str,
         "parameters": {"time_range": time_range, "granularity": granularity},
         "data_points": data
     }
+
+@router.get("/costs/chargeback")
+def api_get_chargeback_data(
+    request: Request,
+    scope_id: int = None,
+    target_month: str = None, 
+    cursor = Depends(get_db_cursor)
+):
+    """Returns data for current month spend and projected forecast"""
+    
+    active_tags = extract_active_tags(request)
+    
+    data = cost_service.calculate_chargeback_forecast(cursor, scope_id, active_tags, target_month)
+    
+    return data

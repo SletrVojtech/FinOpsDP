@@ -1,0 +1,145 @@
+<div>
+    
+    <button hx-get="/ui/scope/{{ scope_id }}?{{ current_qs }}"
+            hx-target="#app-content"
+            hx-swap="innerHTML">
+        ⬅ Zpět na seznam zdrojů
+    </button>
+
+    <h2>Chargeback & Odhad nákladů</h2>
+    
+    <div><div>
+            <label for="monthSelect" style="font-weight: bold;">Zúčtovací měsíc:</label>
+            <input type="month" id="monthSelect" style="padding: 5px; ">
+        </div>
+        
+        <div style="font-size: 1.2em;">
+            Odhad na konci měsíce: <strong id="projectedTotalDisplay" style="color: #000000;">---</strong>
+        </div>
+    </div>
+
+    <div style="margin-top: 30px; height: 500px;">
+        <canvas id="chargebackChart"></canvas>
+    </div>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<script>
+    window.chargebackChartInstance = window.chargebackChartInstance || null;
+
+    async function renderChargebackChart() {
+
+        var monthInput = document.getElementById('monthSelect');
+        
+        if (!monthInput.value) {
+            var now = new Date();
+            monthInput.value = now.toISOString().substring(0, 7);
+        }
+
+        var targetMonth = monthInput.value;
+        var scopeId = "{{ scope_id }}";
+        var queryString = "{{ current_qs | safe }}"; 
+        
+        var url = `/api/v1/costs/chargeback?target_month=${targetMonth}`;
+        if (scopeId && scopeId.trim() !== "") {
+            url += `&scope_id=${scopeId}`;
+        }
+        if (queryString && queryString.trim() !== "") {
+            url += `&${queryString}`;
+        }
+
+        try {
+            var response = await fetch(url);
+            
+            if (!response.ok) {
+                console.error("API Error:", response.status);
+                return;
+            }
+            
+            var data = await response.json();
+
+            document.getElementById('projectedTotalDisplay').innerText = 
+                data.projected_total ? data.projected_total.toFixed(2) + ' €' : '0.00 €';
+
+            var labels = data.labels.map(dateStr => {
+                var d = new Date(dateStr);
+                return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+            });
+
+            if (window.chargebackChartInstance) {
+                window.chargebackChartInstance.destroy();
+            }
+
+            var ctx = document.getElementById('chargebackChart').getContext('2d');
+            window.chargebackChartInstance = new Chart(ctx, {
+                type: 'line', 
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            type: 'line',
+                            label: 'Průběžná útrata (Skutečnost)',
+                            data: data.actual_cumulative,
+                            borderColor: 'rgba(54, 162, 235, 1)',
+                            backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                            fill: true,
+                            tension: 0.1,
+                            yAxisID: 'y'
+                        },
+                        {
+                            type: 'line',
+                            label: 'Prognóza (Run-Rate)',
+                            data: data.forecast_cumulative,
+                            borderColor: 'rgba(255, 159, 64, 1)',
+                            borderDash: [5, 5], 
+                            fill: false,
+                            tension: 0.1,
+                            yAxisID: 'y'
+                        },
+                        {
+                            type: 'bar',
+                            label: 'Denní náklad (Sloupce)',
+                            data: data.actual_daily,
+                            backgroundColor: 'rgba(75, 192, 192, 0.6)',
+                            yAxisID: 'y1'
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false,
+                    },
+                    scales: {
+                        y: {
+                            type: 'linear',
+                            display: true,
+                            position: 'left',
+                            title: { display: true, text: 'Kumulativní náklady (€)' },
+                            beginAtZero: true
+                        },
+                        y1: {
+                            type: 'linear',
+                            display: true,
+                            position: 'right',
+                            title: { display: true, text: 'Denní náklady (€)' },
+                            beginAtZero: true,
+                            grid: { drawOnChartArea: false } 
+                        }
+                    }
+                }
+            });
+
+        } catch (error) {
+            console.error("Chyba při načítání chargeback dat:", error);
+        }
+    }
+
+    document.getElementById('monthSelect').addEventListener('change', renderChargebackChart);
+
+    renderChargebackChart();
+</script>

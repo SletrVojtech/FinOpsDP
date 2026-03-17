@@ -82,3 +82,16 @@ def view_metrics_dashboard(request: Request, entity_id: int, current_qs: str = "
         "current_qs": current_qs,
         "scope_id": scope_id
     })
+
+@router.get("/ui/chargeback", response_class=HTMLResponse)
+def view_chargeback_dashboard(
+    request: Request, 
+    scope_id: str = "", 
+    current_qs: str = ""
+):
+    """Shows a page with chargeback dashboard"""
+    return templates.TemplateResponse("chargeback_dashboard.html", {
+        "request": request,
+        "scope_id": scope_id,
+        "current_qs": current_qs
+    })
