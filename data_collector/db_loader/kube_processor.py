@@ -58,7 +58,7 @@ class KubeProcessor:
         cluster_id = ':'.join(resource_id.split(':')[:-1])
         cluster_name = payload.tags.get('cluster', 'unknown-cluster').lower()
 
-        parent_id = None
+        parent_id = 0
         
         if provider == "azure":
             parts = resource_id.split("/")
@@ -67,12 +67,12 @@ class KubeProcessor:
                 sub_id = parts[2]
                 rg_name = parts[4]
                 # Create subscription and resource group entity
-                parent_id = self._upsert_entity(f"/subscriptions/{sub_id}",provider,sub_id, "subscription", None)
+                parent_id = self._upsert_entity(f"/subscriptions/{sub_id}",provider,sub_id, "subscription", 0)
                 parent_id = self._upsert_entity(f"/subscriptions/{sub_id}/resourcegroups/{rg_name}",provider,rg_name, "resource_group", parent_id)
                 
         elif provider == "aws":
             # AWS hierarchy is account-id only
-            parent_id = self._upsert_entity(acc_id,provider,acc_id, "aws_account", None)
+            parent_id = self._upsert_entity(acc_id,provider,acc_id, "aws_account", 0)
 
 
         # UPSERT  k8s cluster

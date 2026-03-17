@@ -73,7 +73,7 @@ class CostsProcessor:
                 
                 # Get Subscription
                 if sub_ext_id not in cache:
-                    cache[sub_ext_id] = self._upsert_single_parent(sub_ext_id, provider, sub_id, "subscription", None)
+                    cache[sub_ext_id] = self._upsert_single_parent(sub_ext_id, provider, sub_id, "subscription", 0)
                 sub_db_id = cache[sub_ext_id]
 
                 # Get ResourceGroup
@@ -90,7 +90,7 @@ class CostsProcessor:
             fallback_sub_id = record.account_id
             fallback_ext = fallback_sub_id if fallback_sub_id.startswith('/') else f"/subscriptions/{fallback_sub_id}"
             if fallback_ext not in cache:
-                cache[fallback_ext] = self._upsert_single_parent(fallback_ext, provider, record.account_id, "subscription", None)
+                cache[fallback_ext] = self._upsert_single_parent(fallback_ext, provider, record.account_id, "subscription", 0)
             return cache[fallback_ext]
 
         return None

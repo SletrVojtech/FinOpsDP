@@ -57,6 +57,10 @@ class DatabaseInitializer:
             else:
                 log.info(f"Table {table_name} already exists.")
 
+        self.cursor.execute("""
+        INSERT INTO Entities (Id,ExternalId) VALUES (0, 'root');
+                            """)
+
     def _to_seconds(self, interval: str) -> int:
         UNIT_MULTIPLIERS = {
         'second': 1, 'minute': 60, 'hour': 3600, 'day': 86400, 'week': 604800

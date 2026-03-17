@@ -36,7 +36,7 @@ class MetricsProcessor:
     def _resolve_entity_and_parent(self, provider, resource_id, account_id, payload, current_hash):
         """Finds or creates Entity, creates hierarchical structure from metadata"""
         
-        parent_id = None
+        parent_id = 0
         
         if provider == "azure":
             parts = resource_id.split("/")
@@ -45,12 +45,12 @@ class MetricsProcessor:
                 sub_id = parts[2]
                 rg_name = parts[4]
                 # Create subscription and resource group entity
-                parent_id = self._upsert_entity(f"/subscriptions/{sub_id}",sub_id, "subscription", "0", None, provider)
+                parent_id = self._upsert_entity(f"/subscriptions/{sub_id}",sub_id, "subscription", "0", 0, provider)
                 parent_id = self._upsert_entity(f"/subscriptions/{sub_id}/resourcegroups/{rg_name}",rg_name, "resource_group", "0", parent_id, provider)
                 
         elif provider == "aws":
             # AWS hierarchy is account-id only
-            parent_id = self._upsert_entity(account_id,account_id, "aws_account", "0", None, provider)
+            parent_id = self._upsert_entity(account_id,account_id, "aws_account", "0", 0, provider)
 
         # Create/update current resource
         return self._upsert_entity(
