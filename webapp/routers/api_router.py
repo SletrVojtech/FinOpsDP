@@ -4,6 +4,11 @@ from crud import entities, metrics
 from fastapi import Query, Request
 from services import cost_service
 from services.utils import extract_active_tags
+from datetime import date
+from pydantic import BaseModel
+from services.utils import extract_active_tags
+import crud.costs as cost
+
 
 
 
@@ -50,7 +55,7 @@ def api_get_metric_data(entity_id: int, metric_name: str,
 @router.get("/costs/chargeback")
 def api_get_chargeback_data(
     request: Request,
-    scope_id: int = None,
+    scope_id: int = 0,
     target_month: str = None, 
     cursor = Depends(get_db_cursor)
 ):
@@ -61,3 +66,25 @@ def api_get_chargeback_data(
     data = cost_service.calculate_chargeback_forecast(cursor, scope_id, active_tags, target_month)
     
     return data
+
+
+
+class BudgetRequest(BaseModel):
+    amount: float
+
+@router.post("/costs/budget")
+def api_set_budget(request: Request,payload: BudgetRequest,scope_id: int = 0, 
+    target_month: str = None, cursor = Depends(get_db_cursor)):
+    """Uloží nový rozpočet pro daný měsíc a kontext."""
+    active_tags = extract_active_tags(request)
+    
+    if target_month:
+        year, month = map(int, target_month.split('-'))
+        period_date = date(year, month, 1)
+    else:
+        period_date = date.today().replace(day=1)
+
+    cost.set_budget(cursor, scope_id, active_tags, period_date, payload.amount)
+    cursor.connection.commit()
+    
+    return {"status": "success", "amount": payload.amount}

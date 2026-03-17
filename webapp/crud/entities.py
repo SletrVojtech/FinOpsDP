@@ -10,7 +10,7 @@ def get_roots(cursor):
         SELECT Id, ResourceName, ProviderName,
                     EXISTS(SELECT 1 FROM Entities child WHERE child.ParentId = e.Id) as has_children
         FROM Entities e
-        WHERE ParentId IS NULL
+        WHERE ParentId = 0
         ORDER BY ProviderName, ResourceName;
     """)
     return [{"id": r[0], "name": r[1], "provider": r[2], "has_children": r[3]} for r in cursor.fetchall()]
@@ -51,7 +51,7 @@ def get_number_of_entities(cursor):
 
 def get_chain(cursor, current_node_id: int):
     """Bottom-Up recursion to find the path to root."""
-    if current_node_id is None:
+    if current_node_id == 0:
         return []
         
     cursor.execute("""
@@ -73,76 +73,59 @@ def get_scoped_top_tags(cursor, parent_id=None, limit=15):
     """Top-Down recursion to find the most frequent tags in the scope."""
     if parent_id is None:
         # Starting in the root
-        cursor.execute("""
-            SELECT key, COUNT(*) as freq
-            FROM Entities e, jsonb_object_keys(e.Tags) as key
-            WHERE e.Tags IS NOT NULL
-            GROUP BY key ORDER BY freq DESC LIMIT %s;
-        """, (limit,))
-    else:
-        # Already scoped, recursively going down.
-        cursor.execute("""
-            WITH RECURSIVE SubTree AS (
-                SELECT Id, Tags FROM Entities WHERE Id = %s
-                UNION ALL
-                SELECT e.Id, e.Tags FROM Entities e
-                JOIN SubTree s ON e.ParentId = s.Id
-            )
-            SELECT key, COUNT(*) as freq
-            FROM SubTree s, jsonb_object_keys(s.Tags) as key
-            WHERE s.Tags IS NOT NULL
-            GROUP BY key ORDER BY freq DESC LIMIT %s;
-        """, (parent_id, limit))
+        parent_id = 0
+
+    # Already scoped, recursively going down.
+    cursor.execute("""
+        WITH RECURSIVE SubTree AS (
+            SELECT Id, Tags FROM Entities WHERE Id = %s
+            UNION ALL
+            SELECT e.Id, e.Tags FROM Entities e
+            JOIN SubTree s ON e.ParentId = s.Id
+        )
+        SELECT key, COUNT(*) as freq
+        FROM SubTree s, jsonb_object_keys(s.Tags) as key
+        WHERE s.Tags IS NOT NULL
+        GROUP BY key ORDER BY freq DESC LIMIT %s;
+    """, (parent_id, limit))
         
     return [{"key": r[0], "count": r[1]} for r in cursor.fetchall()]
 
 def get_scoped_items(cursor, parent_id=None):
     """Return entites in the scope - only one tier lower."""
     if parent_id is None:
-        cursor.execute("""
-            SELECT Id, ResourceName, ProviderName as Type, 
-                   EXISTS(SELECT 1 FROM Entities child WHERE child.ParentId = e.Id) as has_children
-            FROM Entities e WHERE ParentId IS NULL ORDER BY ProviderName, ResourceName;
-        """)
-    else:
-        cursor.execute("""
-            SELECT Id, ResourceName, ResourceType as Type,
-                   EXISTS(SELECT 1 FROM Entities child WHERE child.ParentId = e.Id) as has_children
-            FROM Entities e WHERE ParentId = %s ORDER BY ResourceType, ResourceName;
-        """, (parent_id,))
+        parent_id = 0
+    cursor.execute("""
+        SELECT Id, ResourceName, ResourceType as Type,
+                EXISTS(SELECT 1 FROM Entities child WHERE child.ParentId = e.Id) as has_children
+        FROM Entities e WHERE ParentId = %s ORDER BY ResourceType, ResourceName;
+    """, (parent_id,))
     return [{"id": r[0], "name": r[1], "type": r[2], "has_children": r[3]} for r in cursor.fetchall()]
 
 def get_dynamic_items(cursor, scope_id: int = None, tags_filter: dict = None):
     """Create a chained filter with scope and tag:value pairs"""
     tags_filter = tags_filter or {}
     params = []
+    if not scope_id:
+        scope_id = 0
 
     # Get the scope
-    if scope_id:
-        base_sql = """
-            WITH RECURSIVE SubTree AS (
-                SELECT Id, ParentId, ResourceName, ResourceType, Tags FROM Entities WHERE Id = %s
-                UNION ALL
-                SELECT e.Id, e.ParentId, e.ResourceName, e.ResourceType, e.Tags FROM Entities e
-                JOIN SubTree s ON e.ParentId = s.Id
-            ),
-            BaseData AS (
-                SELECT Id, ResourceName, ResourceType as Type, Tags, ParentId,
-                       EXISTS(SELECT 1 FROM Entities c WHERE c.ParentId = SubTree.Id) as has_children
-                FROM SubTree
-                WHERE Id != %s
-            )
-        """
-        params.extend([scope_id, scope_id])
-    else:
-        base_sql = """
-            WITH BaseData AS (
-                SELECT Id, ResourceName, ProviderName as Type, Tags, ParentId,
-                       EXISTS(SELECT 1 FROM Entities c WHERE c.ParentId = Entities.Id) as has_children
-                FROM Entities
-                WHERE ParentId IS NULL
-            )
-        """
+    base_sql = """
+        WITH RECURSIVE SubTree AS (
+            SELECT Id, ParentId, ResourceName, ResourceType, Tags FROM Entities WHERE Id = %s
+            UNION ALL
+            SELECT e.Id, e.ParentId, e.ResourceName, e.ResourceType, e.Tags FROM Entities e
+            JOIN SubTree s ON e.ParentId = s.Id
+        ),
+        BaseData AS (
+            SELECT Id, ResourceName, ResourceType as Type, Tags, ParentId,
+                    EXISTS(SELECT 1 FROM Entities c WHERE c.ParentId = SubTree.Id) as has_children
+            FROM SubTree
+            WHERE Id != %s
+        )
+    """
+    params.extend([scope_id, scope_id])
+    
 
     if AppConfig.ENABLE_METRICS:
             query = base_sql + """ 
@@ -175,26 +158,20 @@ def get_scoped_tag_values(cursor, parent_id: int, tag_key: str):
     Returns number (and names) of different key-values in current scope.
     """
     if parent_id is None:
-        cursor.execute("""
-            SELECT Tags->>%s as tag_value, COUNT(*) as freq
-            FROM Entities
-            WHERE Tags ? %s -- Kontrola, zda klíč v JSONB vůbec existuje
-            GROUP BY tag_value
-            ORDER BY freq DESC;
-        """, (tag_key, tag_key))
-    else:
-        cursor.execute("""
-            WITH RECURSIVE SubTree AS (
-                SELECT Id, Tags FROM Entities WHERE Id = %s
-                UNION ALL
-                SELECT e.Id, e.Tags FROM Entities e
-                JOIN SubTree s ON e.ParentId = s.Id
-            )
-            SELECT Tags->>%s as tag_value, COUNT(*) as freq
-            FROM SubTree
-            WHERE Tags ? %s
-            GROUP BY tag_value
-            ORDER BY freq DESC;
-        """, (parent_id, tag_key, tag_key))
+        parent_id = 0
+
+    cursor.execute("""
+        WITH RECURSIVE SubTree AS (
+            SELECT Id, Tags FROM Entities WHERE Id = %s
+            UNION ALL
+            SELECT e.Id, e.Tags FROM Entities e
+            JOIN SubTree s ON e.ParentId = s.Id
+        )
+        SELECT Tags->>%s as tag_value, COUNT(*) as freq
+        FROM SubTree
+        WHERE Tags ? %s
+        GROUP BY tag_value
+        ORDER BY freq DESC;
+    """, (parent_id, tag_key, tag_key))
         
     return [{"value": r[0] if r[0] is not None else "", "count": r[1]} for r in cursor.fetchall()]

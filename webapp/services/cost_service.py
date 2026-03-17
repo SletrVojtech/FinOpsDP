@@ -65,6 +65,9 @@ def calculate_chargeback_forecast(cursor, scope_id: int, active_tags: dict, targ
             actual_daily.append(None)
             actual_cumulative.append(None)
             forecast_cumulative.append(round(cumulative_sum, 2))
+    costs_crud.save_forecast_snapshot(cursor, scope_id, active_tags, base_date, round(cumulative_sum, 2))
+    cursor.connection.commit()
+    budget_amount = costs_crud.get_budget(cursor, scope_id, active_tags, base_date)
 
     return {
         "month": f"{base_date.year}-{base_date.month:02d}",
@@ -72,5 +75,7 @@ def calculate_chargeback_forecast(cursor, scope_id: int, active_tags: dict, targ
         "labels": labels,
         "actual_daily": actual_daily,
         "actual_cumulative": actual_cumulative,
-        "forecast_cumulative": forecast_cumulative
+        "forecast_cumulative": forecast_cumulative,
+        "budget": budget_amount
     }
+

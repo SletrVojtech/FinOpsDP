@@ -81,7 +81,19 @@ SCHEMA_DEFINITIONS = {
         LimitAmount DECIMAL(18, 4),
         PeriodMonth DATE                        
     );
-    """
+    """,
+    "forecasthistory":"""
+    CREATE TABLE ForecastHistory (
+        Id SERIAL PRIMARY KEY,
+        ScopeId INTEGER REFERENCES Entities(Id),
+        Tags JSONB,
+        TargetMonth DATE,
+        ForecastDate DATE,
+        ProjectedAmount DECIMAL(18, 4),
+        CalculatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+        UNIQUE(ScopeId, Tags, TargetMonth, ForecastDate)
+);"""
 }
 
 def cagg_first_metrics(name:str, interval:str):

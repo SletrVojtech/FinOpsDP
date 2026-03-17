@@ -6,7 +6,7 @@ load_dotenv(".env.web")
 
 
 def get_db_cursor():
-    # Yielding opened connection 
+    # Yielding opened cursor 
     conn = psycopg2.connect(
         host=os.getenv("DB_HOST", "localhost"),
         port=os.getenv("DB_PORT", "5432"),

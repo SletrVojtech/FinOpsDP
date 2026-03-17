@@ -8,9 +8,16 @@
 
     <h2>Chargeback & Odhad nákladů</h2>
     
-    <div><div>
-            <label for="monthSelect" style="font-weight: bold;">Zúčtovací měsíc:</label>
-            <input type="month" id="monthSelect" style="padding: 5px; ">
+    <div>
+
+        <div>
+            <label for="monthSelect">Zúčtovací měsíc:</label>
+            <input type="month" id="monthSelect" >
+            
+            <span>
+                Rozpočet: <strong id="budgetAmountText" style="color: #000000;">Načítám...</strong>
+                <button onclick="promptForBudget()" > Upravit</button>
+            </span>
         </div>
         
         <div style="font-size: 1.2em;">
@@ -51,15 +58,22 @@
         }
 
         try {
+            if (window.chargebackChartInstance) {
+                window.chargebackChartInstance.destroy();
+            }
+
             var response = await fetch(url);
             
             if (!response.ok) {
                 console.error("API Error:", response.status);
                 return;
             }
+
+            
             
             var data = await response.json();
-
+            document.getElementById('budgetAmountText').innerText = 
+                data.budget !== null ? data.budget.toFixed(2) + ' €' : 'Nenastaven';
             document.getElementById('projectedTotalDisplay').innerText = 
                 data.projected_total ? data.projected_total.toFixed(2) + ' €' : '0.00 €';
 
@@ -67,17 +81,7 @@
                 var d = new Date(dateStr);
                 return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
             });
-
-            if (window.chargebackChartInstance) {
-                window.chargebackChartInstance.destroy();
-            }
-
-            var ctx = document.getElementById('chargebackChart').getContext('2d');
-            window.chargebackChartInstance = new Chart(ctx, {
-                type: 'line', 
-                data: {
-                    labels: labels,
-                    datasets: [
+            datasets = [
                         {
                             type: 'line',
                             label: 'Průběžná útrata (Skutečnost)',
@@ -106,6 +110,28 @@
                             yAxisID: 'y1'
                         }
                     ]
+            if (data.budget !== null) {
+                var budgetData = data.labels.map(() => data.budget);
+                datasets.push({
+                    type: 'line',
+                    label: 'Rozpočet',
+                    data: budgetData,
+                    borderColor: 'rgba(255, 0, 0, 0.7)',
+                    borderWidth: 2,
+                    borderDash: [10, 5], 
+                    pointRadius: 0,
+                    fill: false,
+                    yAxisID: 'y'
+                });
+            }
+
+
+            var ctx = document.getElementById('chargebackChart').getContext('2d');
+            window.chargebackChartInstance = new Chart(ctx, {
+                type: 'line', 
+                data: {
+                    labels: labels,
+                    datasets: datasets
                 },
                 options: {
                     responsive: true,
@@ -136,6 +162,48 @@
 
         } catch (error) {
             console.error("Chyba při načítání chargeback dat:", error);
+        }
+    }
+
+    async function promptForBudget() {
+        var currentText = document.getElementById('budgetAmountText').innerText;
+        var defaultVal = currentText !== "Nenastaven" ? currentText.replace(' €', '') : "";
+        
+        var newBudgetStr = prompt("Zadejte nový měsíční rozpočet (€):", defaultVal);
+
+        if (newBudgetStr !== null && newBudgetStr.trim() !== "") {
+            var newBudget = parseFloat(newBudgetStr);
+            if (!isNaN(newBudget) && newBudget >= 0) {
+                await saveBudget(newBudget);
+            } else {
+                alert("Zadejte platné kladné číslo.");
+            }
+        }
+    }
+
+    async function saveBudget(amount) {
+        var targetMonth = document.getElementById('monthSelect').value;
+        var scopeId = "{{ scope_id }}";
+        if (!scopeId || scopeId.trim() === "") { scopeId = "0"; }
+        
+        var queryString = "{{ current_qs | safe }}";
+        var url = `/api/v1/costs/budget?target_month=${targetMonth}&scope_id=${scopeId}`;
+        if (queryString && queryString.trim() !== "") { url += `&${queryString}`; }
+
+        try {
+            var response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ amount: amount })
+            });
+
+            if (response.ok) {
+                renderChargebackChart(); // Change the chart
+            } else {
+                alert("Chyba při ukládání rozpočtu.");
+            }
+        } catch (err) {
+            console.error(err);
         }
     }
 

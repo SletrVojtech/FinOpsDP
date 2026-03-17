@@ -15,7 +15,7 @@ def dashboard(request: Request):
 
 @router.get("/ui/scope/{node_id}", response_class=HTMLResponse)
 @router.get("/ui/scope/", response_class=HTMLResponse)
-def get_scope(request: Request, node_id: int = None, cursor = Depends(get_db_cursor)):
+def get_scope(request: Request, node_id: int = 0, cursor = Depends(get_db_cursor)):
     
     # Parse tags from the query
     active_tags = {}
@@ -38,7 +38,7 @@ def get_scope(request: Request, node_id: int = None, cursor = Depends(get_db_cur
 
     return templates.TemplateResponse("partial/scope_view.html", {
         "request": request,
-        "current_scope_id": node_id or "",
+        "current_scope_id": node_id,
         "chain": chain,
         "top_tags": top_tags,
         "items": items,
@@ -52,7 +52,7 @@ def get_tag_values(request: Request, scope_id: str = "", tag_key: str = None, cu
     if not tag_key:
         return HTMLResponse("")
         
-    scope_int = int(scope_id) if scope_id else None
+    scope_int = int(scope_id) if scope_id else 0
     values = entities.get_scoped_tag_values(cursor, scope_int, tag_key)
     
     return templates.TemplateResponse("partial/tag_values.html", {
