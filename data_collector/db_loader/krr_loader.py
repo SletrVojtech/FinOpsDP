@@ -1,0 +1,139 @@
+import logging
+from psycopg2.extras import execute_values
+from pydantic import ValidationError
+from datetime import datetime, timezone
+
+from krr_collector.message import KRRBatchPayload
+
+log = logging.getLogger('KRRProcessor')
+
+class KRRProcessor:
+    """
+    Parse KRR Recommendations from RabbitMQ into DB.
+    Links recommendations to the Namespace entity.
+    """
+    def __init__(self, db_conn):
+        self.db = db_conn
+        self.cursor = self.db.cursor()
+
+    def process(self, envelope):
+        payload_dict = envelope.payload
+        try:
+            batch = KRRBatchPayload.model_validate(payload_dict)
+        except ValidationError as e:
+            log.error(f"Invalid KRRBatchPayload: {e}")
+            raise
+
+        if not batch.recommendations:
+            return
+
+        scan_timestamp = envelope.timestamp if hasattr(envelope, 'timestamp') else datetime.now(timezone.utc)
+
+        values = []
+        namespace_cache = {}
+
+        for item in batch.recommendations:
+            # Create an URN for the namespace and get ID
+            namespace_urn = f"{item.cluster_id}:namespace/{item.namespace}".lower()
+
+            if namespace_urn not in namespace_cache:
+                entity_id = self._resolve_hierarchy(item, namespace_urn)
+                namespace_cache[namespace_urn] = entity_id
+            
+            entity_id = namespace_cache[namespace_urn]
+
+            # Add a line to the insert
+            values.append((
+                entity_id,
+                scan_timestamp,
+                item.workload_type,
+                item.workload_name,
+                item.container_name,
+                item.current_cpu_request,
+                item.recommended_cpu_request,
+                item.current_memory_request,
+                item.recommended_memory_request
+            ))
+
+        self._insert_recommendations(values)
+        log.info(f"Saved {len(values)} recommendations to DB.")
+
+    def _resolve_hierarchy(self, item, namespace_urn) -> int:
+        """
+        Creates hierarchy of entities on top of cloud providers.
+        Returns entity ID for the NAMESPACE.
+        """
+        provider = item.cloud_provider
+        acc_id = item.account_id.lower()
+        cluster_id = item.cluster_id.lower()
+        cluster_name = item.cluster_name.lower()
+
+        parent_id = 0
+        
+        if provider == "azure":
+            parts = cluster_id.split("/")
+            if len(parts) > 4:
+                sub_id = parts[2]
+                rg_name = parts[4]
+                parent_id = self._upsert_entity(f"/subscriptions/{sub_id}", provider, sub_id, "subscription", 0)
+                parent_id = self._upsert_entity(f"/subscriptions/{sub_id}/resourcegroups/{rg_name}", provider, rg_name, "resource_group", parent_id)
+                
+        elif provider == "aws":
+            parent_id = self._upsert_entity(acc_id, provider, acc_id, "aws_account", 0)
+
+        # UPSERT k8s cluster
+        cluster_db_id = self._upsert_entity(
+            ext_id=cluster_id,
+            provider=provider, 
+            res_name=cluster_name, 
+            res_type="kubernetes_cluster", 
+            parent_id=parent_id
+        )
+
+        # UPSERT Namespace
+        query = """
+            INSERT INTO Entities (ExternalId, ProviderName, ResourceName, ResourceType, ParentId)
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (ExternalId) DO UPDATE 
+            SET ParentId = EXCLUDED.ParentId
+            RETURNING Id;
+        """
+        self.cursor.execute(query, (
+            namespace_urn, 
+            provider.lower(), 
+            item.namespace.lower(), 
+            "kubernetes_namespace", 
+            cluster_db_id
+        ))
+        return self.cursor.fetchone()[0]
+
+    def _upsert_entity(self, ext_id, provider, res_name, res_type, parent_id):
+        """Helper method for updating entities"""
+        query = """
+            INSERT INTO Entities (ExternalId, ProviderName, ResourceName, ResourceType, ParentId)
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (ExternalId) DO UPDATE SET ParentId = EXCLUDED.ParentId, ResourceType = EXCLUDED.ResourceType
+            RETURNING Id;
+        """
+        if not res_name or res_name == "None":
+            res_name = ext_id
+        self.cursor.execute(query, (ext_id.lower(), provider.lower(), res_name.lower(), res_type.lower(), parent_id))
+        return self.cursor.fetchone()[0]
+
+    def _insert_recommendations(self, values: list):
+        """Bulk UPSERT of latest recommendations into KubeRecommendations table"""
+        query = """
+            INSERT INTO KubeRecommendations (
+                EntityId, Timestamp, WorkloadType, WorkloadName, ContainerName, 
+                CurrentCpuRequest, RecommendedCpuRequest, CurrentMemoryRequest, RecommendedMemoryRequest
+            )
+            VALUES %s
+            ON CONFLICT (EntityId, WorkloadType, WorkloadName, ContainerName) 
+            DO UPDATE SET 
+                Timestamp = EXCLUDED.Timestamp,
+                CurrentCpuRequest = EXCLUDED.CurrentCpuRequest,
+                RecommendedCpuRequest = EXCLUDED.RecommendedCpuRequest,
+                CurrentMemoryRequest = EXCLUDED.CurrentMemoryRequest,
+                RecommendedMemoryRequest = EXCLUDED.RecommendedMemoryRequest;
+        """
+        execute_values(self.cursor, query, values)

@@ -93,7 +93,33 @@ SCHEMA_DEFINITIONS = {
         CalculatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
         UNIQUE(ScopeId, Tags, TargetMonth, ForecastDate)
-);"""
+    );""",
+    "allocationrules":"""
+    CREATE TABLE AllocationRules (
+        Id SERIAL PRIMARY KEY,
+        RuleName VARCHAR(100),
+        SourceTags JSONB NOT NULL,
+        TargetTags JSONB NOT NULL,
+        Percentage DECIMAL(5,2) NOT NULL CHECK (Percentage > 0 AND Percentage <= 100)
+    );
+    """,
+    "kuberecommendations":"""
+    CREATE TABLE KubeRecommendations (
+         Id SERIAL PRIMARY KEY,
+         EntityId INTEGER REFERENCES Entities(Id), -- points to a namespace
+         Timestamp TIMESTAMP WITH TIME ZONE,
+         WorkloadType VARCHAR(50),     -- Deployment, StatefulSet...
+         WorkloadName VARCHAR(255),
+         ContainerName VARCHAR(255),
+
+         CurrentCpuRequest VARCHAR(50),
+         RecommendedCpuRequest VARCHAR(50),
+         CurrentMemoryRequest VARCHAR(50),
+         RecommendedMemoryRequest VARCHAR(50),
+
+         UNIQUE(EntityId, WorkloadType, WorkloadName, ContainerName)
+    );
+"""
 }
 
 def cagg_first_metrics(name:str, interval:str):

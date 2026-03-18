@@ -58,7 +58,7 @@ class DatabaseInitializer:
                 log.info(f"Table {table_name} already exists.")
 
         self.cursor.execute("""
-        INSERT INTO Entities (Id,ExternalId) VALUES (0, 'root');
+        INSERT INTO Entities (Id,ExternalId) VALUES (0, 'root') ON CONFLICT (id) DO NOTHING;
                             """)
 
     def _to_seconds(self, interval: str) -> int:

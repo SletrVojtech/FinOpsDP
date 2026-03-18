@@ -4,6 +4,8 @@ from rabbitmq.message import IngestionMessage
 from db_loader.metrics_processor import MetricsProcessor
 from db_loader.cost_processor import CostsProcessor
 from db_loader.kube_processor import KubeProcessor
+from db_loader.krr_loader import KRRProcessor
+
 
 
 log = logging.getLogger('DB_loader')
@@ -38,6 +40,9 @@ class DBLoader:
                 processor.process(envelope)
             elif envelope.source_module == "kube_collector":
                 processor = KubeProcessor(self.db)
+                processor.process(envelope)
+            elif envelope.source_module == "krr_collector":
+                processor = KRRProcessor(self.db)
                 processor.process(envelope)
             else:
                 log.warning(f"Unsupported module: {envelope.source_module}")
