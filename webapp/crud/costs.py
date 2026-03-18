@@ -1,5 +1,8 @@
-# web_app/crud/costs.py
+
 from datetime import date
+from crud import allocations
+
+
 
 def get_daily_costs(cursor, scope_id: int = 0, tags_filter: dict = None, target_date: date = None):
     """

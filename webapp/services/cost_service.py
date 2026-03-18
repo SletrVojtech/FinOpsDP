@@ -1,7 +1,18 @@
 # web_app/services/cost_service.py
 import calendar
 from datetime import date
-from crud import costs as costs_crud
+from crud import costs as costs_crud, allocations
+
+
+
+def tags_match(current_tags: dict, rule_tags: dict) -> bool:
+    """Check if current tags match rule tags"""
+    if not rule_tags: 
+        return False
+    for k, v in rule_tags.items():
+        if current_tags.get(k) != v:
+            return False
+    return True
 
 def calculate_chargeback_forecast(cursor, scope_id: int, active_tags: dict, target_month: str = None) -> dict:
     """
@@ -18,6 +29,46 @@ def calculate_chargeback_forecast(cursor, scope_id: int, active_tags: dict, targ
     # Get daily data from DB
     raw_data = costs_crud.get_daily_costs(cursor, scope_id, active_tags, base_date)
     cost_dict = {row["date"]: row["cost"] for row in raw_data}
+
+
+    if active_tags:
+        all_rules = allocations.get_allocation_rules(cursor)
+        
+        # Get rules that affect current tag scope
+        incoming_rules = [r for r in all_rules if tags_match(active_tags, r["target_tags"])]
+        outgoing_rules = [r for r in all_rules if tags_match(active_tags, r["source_tags"])]
+        
+        applicable_rules = incoming_rules + outgoing_rules
+
+        if applicable_rules:
+            # Load all sources
+            source_costs = {}
+            existing_dates = set(cost_dict.keys())
+            for rule in applicable_rules:
+                if rule["id"] not in source_costs:
+                    s_data = costs_crud.get_daily_costs(cursor, 0, rule["source_tags"], base_date)
+                    s_dict = {row["date"]: row["cost"] for row in s_data}
+                    source_costs[rule["id"]] = s_dict
+                    existing_dates.update(s_dict.keys())
+
+            # Update daily values
+            for day in existing_dates:
+                date_str = day
+                
+                # Base expense
+                daily_total = cost_dict.get(date_str, 0.0)
+                
+                # Add costs for being the target
+                for rule in incoming_rules:
+                    s_cost = source_costs[rule["id"]].get(date_str, 0.0)
+                    daily_total += s_cost * (rule["percentage"] / 100.0)
+                    
+                # Deduct costs for being the source
+                for rule in outgoing_rules:
+                    s_cost = source_costs[rule["id"]].get(date_str, 0.0)
+                    daily_total -= s_cost * (rule["percentage"] / 100.0)
+                    
+                cost_dict[date_str] = daily_total
 
     _, num_days = calendar.monthrange(base_date.year, base_date.month)
     # How many days have to be forecasted

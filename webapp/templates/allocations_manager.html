@@ -1,0 +1,115 @@
+<div>
+    <h2>Správa sdílených nákladů</h2>
+    <button hx-get="/ui/scope/0"
+            hx-target="#app-content"
+            hx-swap="innerHTML">
+        Zpět na seznam zdrojů
+    </button>
+    <div>
+        <h4>Přidat nové pravidlo</h4>
+        <div>
+            <div>
+                <label>Název pravidla</label>
+                <input type="text" id="ruleName" placeholder="Např. Rozpad DB" style="padding: 5px;">
+            </div>
+            <div>
+                <label>Zdrojové Tagy</label>
+                <input type="text" id="sourceTags" placeholder='{"env": "shared"}' style="padding: 5px; width: 200px;">
+            </div>
+            <div>
+                <label>Cílové Tagy</label>
+                <input type="text" id="targetTags" placeholder='{"team": "frontend"}' style="padding: 5px; width: 200px;">
+            </div>
+            <div>
+                <label>Procento nákladů</label>
+                <input type="number" id="rulePercentage" placeholder="40" step="0.1" style="padding: 5px; width: 80px;">
+            </div>
+            <button onclick="saveRule()" >
+                Přidat
+            </button>
+        </div>
+    </div>
+
+    <table>
+        <thead>
+            <tr style=" text-align: left;">
+                <th>ID</th>
+                <th>Název</th>
+                <th>Zdroj</th>
+                <th>Cíl</th>
+                <th>%</th>
+                <th>Akce</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for rule in rules %}
+            <tr>
+                <td>{{ rule.id }}</td>
+                <td>{{ rule.rule_name }}</td>
+                <td><code>{{ rule.source_tags | tojson }}</code></td>
+                <td><code>{{ rule.target_tags | tojson }}</code></td>
+                <td><strong>{{ rule.percentage }} %</strong></td>
+                <td>
+                    <button onclick="deleteRule({{ rule.id }})">Smazat</button>
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="6">Zatím nejsou nastavena žádná pravidla.</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<script>
+    async function saveRule() {
+        var ruleName = document.getElementById('ruleName').value;
+        var sourceTagsStr = document.getElementById('sourceTags').value;
+        var targetTagsStr = document.getElementById('targetTags').value;
+        var percentageStr = document.getElementById('rulePercentage').value;
+
+        if(!ruleName || !sourceTagsStr || !targetTagsStr || !percentageStr) {
+            alert("Prosím vyplňte všechna pole.");
+            return;
+        }
+
+        try {
+            // Check the JSON format
+            var sourceTags = JSON.parse(sourceTagsStr);
+            var targetTags = JSON.parse(targetTagsStr);
+            var percentage = parseFloat(percentageStr);
+
+            var response = await fetch('/api/v1/allocations', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    rule_name: ruleName,
+                    source_tags: sourceTags,
+                    target_tags: targetTags,
+                    percentage: percentage
+                })
+            });
+
+            if (response.ok) {
+                // Reload the page
+                htmx.ajax('GET', '/ui/allocations', '#app-content');
+            } else {
+                alert("Chyba při ukládání.");
+            }
+        } catch (e) {
+            alert("Chyba formátu tagů! Musí to být validní JSON, např: {\"env\": \"shared\"}\nDetaily: " + e.message);
+        }
+    }
+
+    async function deleteRule(id) {
+        if (!confirm("Opravdu smazat toto pravidlo?")) return;
+        
+        var response = await fetch(`/api/v1/allocations/${id}`, { method: 'DELETE' });
+        if (response.ok) {
+            htmx.ajax('GET', '/ui/allocations', '#app-content');
+        } else {
+            alert("Chyba při mazání.");
+        }
+    }
+</script>
