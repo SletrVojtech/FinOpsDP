@@ -8,6 +8,7 @@ from datetime import date
 from pydantic import BaseModel
 from services.utils import extract_active_tags
 import crud.costs as cost
+from crud import allocations
 
 
 
@@ -75,7 +76,7 @@ class BudgetRequest(BaseModel):
 @router.post("/costs/budget")
 def api_set_budget(request: Request,payload: BudgetRequest,scope_id: int = 0, 
     target_month: str = None, cursor = Depends(get_db_cursor)):
-    """Uloží nový rozpočet pro daný měsíc a kontext."""
+    """Save new budget for given scope and tags."""
     active_tags = extract_active_tags(request)
     
     if target_month:
@@ -88,3 +89,19 @@ def api_set_budget(request: Request,payload: BudgetRequest,scope_id: int = 0,
     cursor.connection.commit()
     
     return {"status": "success", "amount": payload.amount}
+
+@router.post("/allocations")
+def api_add_allocation(request: Request, payload: allocations.AllocationRequest, cursor = Depends(get_db_cursor)):
+    """Save a new allocation rule."""
+    allocations.add_allocation_rule(
+        cursor, payload.rule_name, payload.source_tags, payload.target_tags, payload.percentage
+    )
+    cursor.connection.commit()
+    return {"status": "success"}
+
+@router.delete("/allocations/{rule_id}")
+def api_delete_allocation(request: Request, rule_id: int, cursor = Depends(get_db_cursor)):
+    """Delete an allocation rule."""
+    allocations.delete_allocation_rule(cursor, rule_id)
+    cursor.connection.commit()
+    return {"status": "success"}

@@ -16,7 +16,15 @@
 </head>
 <body>
     <h1>FinOps Scope Explorer</h1>
-    
+    <button hx-get="/ui/allocations" hx-target="#app-content" hx-swap="innerHTML" style="margin-bottom: 15px;">
+    Spravovat sdílené náklady
+    </button>
+
+    <button hx-get="/ui/krr" hx-target="#app-content" hx-swap="innerHTML" style="margin-bottom: 15px;">
+    KRR Dashboard
+    </button>
+
+
     <div id="app-content" hx-get="/ui/scope/" hx-trigger="load" hx-swap="innerHTML">
         Načítám data cloudu...
     </div>

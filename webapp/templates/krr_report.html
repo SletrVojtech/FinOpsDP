@@ -1,0 +1,35 @@
+<h2>KRR Doporučení: {{ cluster_name }}</h2>
+<p><a href="/ui/krr">← Zpět na seznam clusterů</a></p>
+
+<table style="border-collapse: collapse; width: 100%; font-family: monospace; text-align: left;">
+    <thead style="background-color: #f4f4f4; border-bottom: 2px solid #ccc;">
+        <tr>
+            <th style="padding: 8px; border: 1px solid #ccc;">Namespace</th>
+            <th style="padding: 8px; border: 1px solid #ccc;">Workload</th>
+            <th style="padding: 8px; border: 1px solid #ccc;">Kontejner</th>
+            <th style="padding: 8px; border: 1px solid #ccc;">CPU (Aktuální &rarr; Nový)</th>
+            <th style="padding: 8px; border: 1px solid #ccc;">RAM (Aktuální &rarr; Nový)</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for row in recommendations %}
+        <tr>
+            <td style="padding: 8px; border: 1px solid #ccc;">{{ row.namespace }}</td>
+            <td style="padding: 8px; border: 1px solid #ccc;">{{ row.workloadtype }} / {{ row.workloadname }}</td>
+            <td style="padding: 8px; border: 1px solid #ccc;">{{ row.containername }}</td>
+            
+            <td style="padding: 8px; border: 1px solid #ccc;">
+                {{ row.currentcpurequest or '-' }} 
+                &rarr; 
+                <strong>{{ row.recommendedcpurequest or '-' }}</strong>
+            </td>
+            
+            <td style="padding: 8px; border: 1px solid #ccc;">
+                {{ row.currentmemoryrequest or '-' }} 
+                &rarr; 
+                <strong>{{ row.recommendedmemoryrequest or '-' }}</strong>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>

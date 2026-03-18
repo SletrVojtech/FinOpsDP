@@ -3,7 +3,8 @@ from fastapi import APIRouter, Request, Depends
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from db.database import get_db_cursor
-from crud import entities, metrics
+from crud import entities, metrics, costs, allocations, krr
+from services.utils import humanize_memory, humanize_cpu
 
 router = APIRouter(tags=["Web UI"])
 templates = Jinja2Templates(directory="templates")
@@ -94,4 +95,53 @@ def view_chargeback_dashboard(
         "request": request,
         "scope_id": scope_id,
         "current_qs": current_qs
+    })
+
+@router.get("/ui/allocations", response_class=HTMLResponse)
+def view_allocations_manager(
+    request: Request, 
+    cursor = Depends(get_db_cursor)
+):
+    """List and edit allocation rules"""
+    rules = allocations.get_allocation_rules(cursor)
+    return templates.TemplateResponse("allocations_manager.html", {
+        "request": request,
+        "rules": rules
+    })
+
+
+@router.get("/ui/krr")
+def krr_index(request: Request, cursor = Depends(get_db_cursor)):
+    """Lists all available clusters with reccomendations."""
+
+    clusters = krr.get_krr_clusters(cursor)
+    return templates.TemplateResponse("krr_dashboard.html", {
+        "request": request,
+        "clusters": clusters
+    })
+
+
+@router.get("/ui/krr/{cluster_id}")
+def krr_detail(request: Request, cluster_id: int, cursor = Depends(get_db_cursor)):
+    """Detail: Vypíše aktuální KRR doporučení pro daný cluster."""
+
+    cluster_name = krr.get_cluster_name(cursor, cluster_id)
+    raw_recommendations = krr.get_krr_recommendations_for_cluster(cursor, cluster_id)
+
+    recommendations = []
+    for row in raw_recommendations:
+        clean_row = dict(row)
+        
+        clean_row['currentcpurequest'] = humanize_cpu(row['currentcpurequest'])
+        clean_row['recommendedcpurequest'] = humanize_cpu(row['recommendedcpurequest'])
+        
+        clean_row['currentmemoryrequest'] = humanize_memory(row['currentmemoryrequest'])
+        clean_row['recommendedmemoryrequest'] = humanize_memory(row['recommendedmemoryrequest'])
+        
+        recommendations.append(clean_row)
+
+    return templates.TemplateResponse("krr_report.html", {
+        "request": request,
+        "cluster_name": cluster_name,
+        "recommendations": recommendations
     })
