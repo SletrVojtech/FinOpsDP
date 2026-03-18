@@ -118,39 +118,64 @@ def get_dynamic_items(cursor, scope_id: int = None, tags_filter: dict = None):
             JOIN SubTree s ON e.ParentId = s.Id
         ),
         BaseData AS (
-            SELECT Id, ResourceName, ResourceType as Type, Tags, ParentId,
-                    EXISTS(SELECT 1 FROM Entities c WHERE c.ParentId = SubTree.Id) as has_children
+            SELECT Id, ResourceName, ResourceType, Tags, ParentId
             FROM SubTree
+            WHERE 1=1
+    """
+    params.extend([scope_id])
+    
+    # Filter by tags
+    for key, value in tags_filter.items():
+        base_sql += " AND Tags->>%s = %s"
+        params.extend([key, value])
+    base_sql += " ),"
+
+    # Bottom up
+
+    base_sql +="""
+    TreePaths AS (
+            -- filtered data
+            SELECT Id, ParentId, ResourceName, ResourceType, Tags
+            FROM BaseData
+
+            UNION ALL
+            
+            -- get their parents
+            SELECT e.Id, e.ParentId, e.ResourceName, e.ResourceType, e.Tags
+            FROM Entities e
+            JOIN TreePaths t ON t.ParentId = e.Id
+            WHERE e.Id != %s 
+        ),
+    """
+    params.append(scope_id)
+
+    has_metrics_sql = (
+        "EXISTS(SELECT 1 FROM Metrics m WHERE m.EntityId = u.Id)" 
+        if getattr(AppConfig, 'ENABLE_METRICS', False) else "False"
+    )
+    # finalize data with has_children, has_metrics
+    base_sql += """
+        UniqueNodes AS (
+            SELECT DISTINCT Id, ParentId, ResourceName, ResourceType as Type
+            FROM TreePaths
             WHERE Id != %s
         )
-    """
-    params.extend([scope_id, scope_id])
-    
-
-    if AppConfig.ENABLE_METRICS:
-            query = base_sql + """ 
         SELECT 
-            b.Id, 
-            b.ResourceName, 
-            b.Type, 
-            b.has_children, 
-            b.ParentId,
-            EXISTS(SELECT 1 FROM Metrics m WHERE m.EntityId = b.Id) as has_metrics 
-        FROM BaseData b 
-        WHERE 1=1
-    """ 
-    else:
-        query = base_sql + " SELECT Id, ResourceName, Type, has_children, False as has_metrics FROM BaseData WHERE 1=1"
-
-    # Query building with tags stored in JSONB, check if given entity has some measurements saved.
-   
-    for key, value in tags_filter.items():
-        query += " AND Tags->>%s = %s"
-        params.extend([key, value])
-
-    query += " ORDER BY Type, ResourceName;"
+            u.Id, 
+            u.ResourceName, 
+            u.Type, 
+            -- Check for children after the filter.
+            EXISTS(SELECT 1 FROM UniqueNodes c WHERE c.ParentId = u.Id) as has_children, 
+            u.ParentId,
+            """+has_metrics_sql +""" as has_metrics
+        FROM UniqueNodes u
+        ORDER BY u.Type, u.ResourceName;
+    """
+    print(base_sql)
+    params.append(scope_id)
+    #params.append(has_metrics_sql)
     
-    cursor.execute(query, params)
+    cursor.execute(base_sql, params)
     return [{"id": r[0], "name": r[1], "type": r[2], "has_children": r[3], "parent_id": r[4], "has_metrics": r[5]} for r in cursor.fetchall()]
 
 def get_scoped_tag_values(cursor, parent_id: int, tag_key: str):

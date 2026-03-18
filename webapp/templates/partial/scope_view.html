@@ -55,8 +55,9 @@
 
 <ul class="list">
     {% for item in items %}
+        {% if item.parent_id == current_scope_id%}
         <li>
-            <div></div>
+            <div>
             {% if item.has_children and not active_tags %}
                     <button class="drill-btn"
                             hx-get="/ui/scope/{{ item.id }}" 
@@ -68,7 +69,7 @@
                     <span>{{ item.name }}</span>
                 {% endif %}
             <span>{{ item.type }}</span>
-
+            </div>
             <div> 
                 <div>
                 {% if item.has_metrics %}
@@ -82,6 +83,7 @@
             </div>
 
         </li>
+        {% endif %}
     {% else %}
         <li>Této kombinaci filtrů nevyhovují žádné zdroje.</li>
     {% endfor %}

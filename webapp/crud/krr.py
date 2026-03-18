@@ -38,6 +38,7 @@ def get_krr_recommendations_for_cluster(db_cursor, cluster_id: int):
         JOIN Entities e_ns ON kr.EntityId = e_ns.Id
         CROSS JOIN LatestScan ls
         WHERE e_ns.ParentId = %s
+          AND kr.Timestamp = ls.max_ts
         ORDER BY namespace, kr.WorkloadType, kr.WorkloadName;
     """
     db_cursor.execute(query, (cluster_id, cluster_id))
