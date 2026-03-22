@@ -88,7 +88,7 @@ class MetricsProcessor:
             return result[0]
         else:
             # Hash hasn't changed, extra select query is needed.
-            self.cursor.execute("SELECT Id FROM Entities WHERE ExternalId = %s", (resource_id,))
+            self.cursor.execute("SELECT Id FROM Entities WHERE ExternalId = %s;", (resource_id.lower(),))
             return self.cursor.fetchone()[0]
 
     def _insert_metrics(self, entity_id, metric_name, datapoints, interval):
