@@ -24,6 +24,10 @@
     KRR Dashboard
     </button>
 
+    <button hx-get="/ui/clusters" hx-target="#app-content" hx-swap="innerHTML" style="margin-bottom: 15px;">
+    Kubernetes
+    </button>
+
 
     <div id="app-content" hx-get="/ui/scope/" hx-trigger="load" hx-swap="innerHTML">
         Načítám data cloudu...

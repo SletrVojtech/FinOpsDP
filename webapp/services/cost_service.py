@@ -72,7 +72,7 @@ def calculate_chargeback_forecast(cursor, scope_id: int, active_tags: dict, targ
 
     _, num_days = calendar.monthrange(base_date.year, base_date.month)
     # How many days have to be forecasted
-    if raw_data:
+    if cost_dict:
         last_data_date = date.fromisoformat(max(cost_dict.keys()))
         cutoff_day = last_data_date.day
     else:

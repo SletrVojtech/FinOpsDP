@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <title>Náklady: {{ cluster_name }}</title>
+    <style>
+        body { font-family: sans-serif; padding: 20px; }
+        .chart-container { width: 100%; max-width: 1000px; margin: 0 auto; margin-top: 30px;}
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+
+    <a href="/ui/clusters">Zpět na seznam clusterů</a>
+    <h2>Denní náklady na namespaces ({{ month }})</h2>
+    <h3>Cluster: {{ cluster_name }}</h3>
+
+    <div class="chart-container">
+        <canvas id="costChart"></canvas>
+    </div>
+
+    <script>
+        const chartData = {{ chart_data | tojson | safe }};
+
+
+        const colors = [
+            '#4e79a7', '#f28e2c', '#e15759', '#76b7b2', '#59a14f', 
+            '#edc949', '#af7aa1', '#ff9da7', '#9c755f', '#bab0ab'
+        ];
+        
+        chartData.datasets.forEach((dataset, index) => {
+            dataset.backgroundColor = colors[index % colors.length];
+        });
+
+        const ctx = document.getElementById('costChart').getContext('2d');
+        new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: chartData.labels,
+                datasets: chartData.datasets
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    title: {
+                        display: true,
+                        text: 'Denní náklady podle Namespaces'
+                    },
+                    tooltip: {
+                        mode: 'index',
+                        intersect: false,
+                        callbacks: {
+                            label: function(context) {
+                                let label = context.dataset.label || '';
+                                if (label) {
+                                    label += ': ';
+                                }
+                                if (context.parsed.y !== null) {
+                                    label += context.parsed.y.toFixed(2) + ' €';
+                                }
+                                return label;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        stacked: true,
+                    },
+                    y: {
+                        stacked: true,
+                        beginAtZero: true
+                    }
+                }
+            }
+        });
+    </script>
+
+</body>
+</html>

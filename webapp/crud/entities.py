@@ -171,7 +171,6 @@ def get_dynamic_items(cursor, scope_id: int = None, tags_filter: dict = None):
         FROM UniqueNodes u
         ORDER BY u.Type, u.ResourceName;
     """
-    print(base_sql)
     params.append(scope_id)
     #params.append(has_metrics_sql)
     

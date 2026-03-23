@@ -5,6 +5,10 @@ from fastapi.templating import Jinja2Templates
 from db.database import get_db_cursor
 from crud import entities, metrics, costs, allocations, krr
 from services.utils import humanize_memory, humanize_cpu
+from services.kube_chargeback import get_daily_namespace_allocation
+from services import cost_service as costs_service
+from datetime import date
+
 
 router = APIRouter(tags=["Web UI"])
 templates = Jinja2Templates(directory="templates")
@@ -123,7 +127,7 @@ def krr_index(request: Request, cursor = Depends(get_db_cursor)):
 
 @router.get("/ui/krr/{cluster_id}")
 def krr_detail(request: Request, cluster_id: int, cursor = Depends(get_db_cursor)):
-    """Detail: Vypíše aktuální KRR doporučení pro daný cluster."""
+    """Print out reccomendations for given cluster."""
 
     cluster_name = krr.get_cluster_name(cursor, cluster_id)
     raw_recommendations = krr.get_krr_recommendations_for_cluster(cursor, cluster_id)
@@ -144,4 +148,42 @@ def krr_detail(request: Request, cluster_id: int, cursor = Depends(get_db_cursor
         "request": request,
         "cluster_name": cluster_name,
         "recommendations": recommendations
+    })
+
+@router.get("/ui/clusters")
+def list_clusters(request: Request, cursor = Depends(get_db_cursor)):
+    """List clusters for chargeback"""
+    # Filter for clusters
+    query = "SELECT Id, ResourceName FROM Entities WHERE ResourceType = 'kubernetes_cluster' ORDER BY ResourceName"
+    cursor.execute(query)
+    clusters = [{"id": row[0], "name": row[1]} for row in cursor.fetchall()]
+    
+    return templates.TemplateResponse("clusters_dashboard.html", {
+        "request": request,
+        "clusters": clusters
+    })
+
+@router.get("/ui/clusters/{cluster_id}/costs")
+def cluster_cost_detail(request: Request, cluster_id: int, cursor = Depends(get_db_cursor)):
+    """Plot a stacked graph with daily costs for given cluster"""
+    
+    # Get cluster name
+    cursor.execute("SELECT ResourceName FROM Entities WHERE Id = %s", (cluster_id,))
+    row = cursor.fetchone()
+    cluster_name = row[0] if row else "Neznámý cluster"
+
+    base_date = date.today().replace(day=1)
+    
+    forecast_data = costs_service.calculate_chargeback_forecast(cursor, cluster_id,{"cluster": cluster_name})
+    daily_cluster_costs = {}
+    for date_str, daily_cost in zip(forecast_data["labels"], forecast_data["actual_daily"]):
+        if daily_cost is not None:
+            daily_cluster_costs[date_str] = daily_cost
+    chart_data = get_daily_namespace_allocation(cursor, cluster_id, base_date, daily_cluster_costs)
+    print(chart_data)
+    return templates.TemplateResponse("cluster_daily.html", {
+        "request": request,
+        "cluster_name": cluster_name,
+        "chart_data": chart_data,
+        "month": base_date.strftime("%Y-%m")
     })
