@@ -78,6 +78,10 @@ services:
     env_file:
       - .env
       - data_collector/.env.collector
+    volumes:
+      - type: bind
+        source: "/home//.kube/config"
+        target: /root/.kube/config
     command: ["python3", "run_policies.py", "scheduler"]
     restart: unless-stopped
     depends_on:
@@ -86,6 +90,23 @@ services:
       rabbitmq:
         condition: service_healthy
 
+  krr_collector:
+    build: 
+      context: ./data_collector
+      dockerfile: Dockerfile.krr
+    container_name: finops_krr
+    env_file:
+      - .env
+      - data_collector/.env.collector
+    depends_on:
+      db_init:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
+    volumes:
+      - /home//.kube/config:/root/.kube/config:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: ["python3", "run_krr.py"]
 
 volumes:
   timescaledb_data:

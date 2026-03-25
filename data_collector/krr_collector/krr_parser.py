@@ -11,17 +11,11 @@ from rabbitmq.connector import RabbitMQClient
 log = logging.getLogger("krr_file_parser")
 
 class KRRFileParser:
-    def __init__(self, json_filepath: str, cluster_info: dict):
-        self.json_filepath = json_filepath
+    def __init__(self, krr_data, cluster_info: dict):
+        self.krr_data = krr_data
         self.cluster_info = cluster_info
 
     def parse_to_rabbitmq(self) -> List[IngestionMessage]:
-        try:
-            with open(self.json_filepath, 'r', encoding='utf-8') as f:
-                krr_data = json.load(f)
-        except Exception as e:
-            log.error(f"Unsucessful when reading {self.json_filepath}: {e}")
-            return []
 
         provider = self.cluster_info.get('provider', 'unknown')
         account_id = self.cluster_info.get('account_id', 'unknown')
@@ -29,9 +23,12 @@ class KRRFileParser:
         cluster_name_conf = self.cluster_info['cluster_name']
 
         payload_batch = []
+        if not self.krr_data:
+            log.warning("JSON with no recommendations found.")
+            return []
 
         # iterate the returned objects
-        for scan in krr_data.get('scans', []):
+        for scan in self.krr_data.get('scans', []):
             obj = scan.get('object', {})
             
             ns = obj.get('namespace')

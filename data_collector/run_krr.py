@@ -1,13 +1,35 @@
 import logging
 import yaml
+import json
 from krr_collector.krr_parser import KRRFileParser
 from rabbitmq.connector import RabbitMQClient
 from dotenv import load_dotenv
 load_dotenv()
+import subprocess
 
 log = logging.getLogger("krr_file_parser")
 logging.getLogger('pika').setLevel(logging.ERROR)
 
+def run_krr_for_context(context_name: str):
+    """Runs a KRR docker image to get a json with recommendations."""
+    log.info(f"Running KRR for context: {context_name}")
+    cmd = [
+        "docker", "run", "--rm",
+        "-v", "/home//.kube/config:/root/.kube/config:ro",
+        "us-central1-docker.pkg.dev/genuine-flight-317411/devel/krr:v1.8.3",
+        "python","krr.py", "simple", "--context", context_name, "-f", "json", "-q"
+    ]
+    
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            
+        return json.loads(result.stdout)
+    except subprocess.CalledProcessError as e:
+        log.error(f"KRR container failed for context {context_name}. Error: {e.stderr}")
+        return None
+    except json.JSONDecodeError as e:
+        log.error(f"Unable to parse JSON output for context{context_name}. Error: {e}")
+        return None
 
 
 def main():
@@ -15,11 +37,12 @@ def main():
     
     with open(".conf/kube_clusters.yml", 'r') as f:
         config = yaml.safe_load(f)
-    files = ["data_collector/krr_collector/tmp/aws_krr.json","data_collector/krr_collector/tmp/azure_krr.json"]
+
+
     messages = []
     for idx,cluster in enumerate(config.get('clusters', [])):
         try:
-            parser = KRRFileParser(json_filepath=files[idx], cluster_info=cluster)
+            parser = KRRFileParser(krr_data=run_krr_for_context(context_name=cluster['context']), cluster_info=cluster)
             messages.extend(parser.parse_to_rabbitmq())
         except Exception as e:
                 log.error(f"Error during processing cluster {cluster.get('cluster_name')}: {e}", exc_info=True)
