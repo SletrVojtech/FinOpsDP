@@ -99,7 +99,7 @@ class KRRProcessor:
             RETURNING Id;
         """
         self.cursor.execute(query, (
-            namespace_urn, 
+            namespace_urn.lower(), 
             provider.lower(), 
             item.namespace.lower(), 
             "kubernetes_namespace", 

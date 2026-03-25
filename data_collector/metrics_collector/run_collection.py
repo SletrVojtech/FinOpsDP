@@ -109,7 +109,6 @@ def run_account_in_memory(account, region, policy_data, output_dir, debug=False)
                                 source_module="custodian",
                                 payload=metrics_payload.model_dump()
                             )
-                            
                             mq_client.publish(
                                 queue_name="data_ingestion", 
                                 message=msg.model_dump_json()

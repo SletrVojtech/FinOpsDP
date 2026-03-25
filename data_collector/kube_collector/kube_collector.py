@@ -75,7 +75,6 @@ class KubePrometheusCollector:
         for metric_def in self.metrics_to_collect:
             log.info(f"Downloading {metric_def['metric_name']} from {cluster_name}...")
             name_with_port = f"http:{service}:{port}"
-            
             query_params = [
                 ('query', metric_def['query']),
                 ('start', start_time),
@@ -102,7 +101,6 @@ class KubePrometheusCollector:
                     _return_http_data_only=True
                 )
                 data = response
-            
                 messages = self._format_to_payload(
                     prom_data=data, 
                     provider=provider, 

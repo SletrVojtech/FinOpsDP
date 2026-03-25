@@ -2,8 +2,8 @@ import yaml
 from policy_templates.policy_crafter import CrafterFactory
 
 class ConfigParser:
-    def __init__(self, config_path: str = "data_collector/conf/metrics.yml",
-                  definitions_path: str = "data_collector/conf/metrics_definitions.yml",
+    def __init__(self, config_path: str = "conf/metrics.yml",
+                  definitions_path: str = "conf/metrics_definitions.yml",
                     safety_overlap_hours: int = 1):
         with open(config_path, 'r') as f:
             self.user_config = yaml.safe_load(f)
@@ -47,7 +47,7 @@ class ConfigParser:
                 for agg in aggregations:
                     policy = crafter.craft(
                         resource=resource_name,
-                        unified_name=unified_metric,         # unified name
+                        unified_name=unified_metric,         # unified metric name
                         metric=cloud_metric_name, # cloud-specific name
                         agg=agg,
                         timeframe_hours=timeframe_hours,

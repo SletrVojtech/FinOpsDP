@@ -61,7 +61,7 @@ class CostsProcessor:
         if provider == "aws":
             acc_id = record.account_id
             if acc_id not in cache:
-                cache[acc_id] = self._upsert_single_parent(acc_id, provider, acc_id, "aws_account", None)
+                cache[acc_id] = self._upsert_single_parent(acc_id, provider, acc_id, "aws_account", 0)
             return cache[acc_id]
 
         elif provider == "azure":
