@@ -1,5 +1,6 @@
 from rabbitmq.message import IngestionMessage
 from metrics_collector.message import MetricsPayload
+from policy_templates.metric_definition import get_metric_behavior
 
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Tuple, Type
@@ -142,6 +143,8 @@ class AzureAdapter(BaseCloudAdapter):
             return "unknown"
 
     def get_datapoints(self) -> List[Dict[str, Any]]:
+        policy_name =  self.kwargs.get("policy_name", "azure_unknown")
+        behavior = get_metric_behavior(policy_name)
         data = self._get_raw_metric_data()
         if not data:
             return []
@@ -153,14 +156,14 @@ class AzureAdapter(BaseCloudAdapter):
             policy_aggregation = self.kwargs.get("policy_aggregation", "average")
             for point in timeseries_data:
                 time = (datetime.datetime.fromisoformat(point["time_stamp"]).timestamp()//300)*300
-
-                clean_datapoints.append({
-                    "timestamp": datetime.datetime.fromtimestamp(time).isoformat(),
-                    "value": point.get("average",
+                val = point.get("average",
                                         point.get("maximum",
                                         point.get("minimum",
                                         point.get("total",
                                         point.get("count", 0.0)))))
+                clean_datapoints.append({
+                    "timestamp": datetime.datetime.fromtimestamp(time).isoformat(),
+                    "value": behavior.transform(val, 300)
                 })
         except (KeyError, IndexError):
             pass
@@ -221,6 +224,9 @@ class AwsAdapter(BaseCloudAdapter):
             return "unknown"
 
     def get_datapoints(self) -> List[Dict[str, Any]]:
+        policy_name =  self.kwargs.get("policy_name", "aws_unknown")
+        behavior = get_metric_behavior(policy_name)
+        
         data_list = self._get_raw_metric_data()
         if not data_list:
             return []
@@ -228,13 +234,14 @@ class AwsAdapter(BaseCloudAdapter):
         clean_datapoints = []
         for point in data_list:
             time = (datetime.datetime.fromisoformat(str(point["Timestamp"])).timestamp()//300)*300
-            clean_datapoints.append({
-                "timestamp": datetime.datetime.fromtimestamp(time).isoformat(),
-                "value": point.get("Average",
+            val = point.get("Average",
                                         point.get("Maximum",
                                         point.get("Minimum",
                                         point.get("Sum",
                                         point.get("SampleCount", 0.0)))))
+            clean_datapoints.append({
+                "timestamp": datetime.datetime.fromtimestamp(time).isoformat(),
+                "value": behavior.transform(val, 300)
             })
             
         return clean_datapoints
@@ -283,7 +290,7 @@ class AzureVmAdapter(AzureAdapter):
         """
         Unify OS type Linux/windows/RedHat/SUSE
         """
-        vm_properties = self.raw_resource.get("properties", {})
+        vm_properties = self.raw_data.get("properties", {})
         storage_profile = vm_properties.get("storageProfile", {})
         
         # Try to parse ImageReference
@@ -310,5 +317,5 @@ class AzureVmAdapter(AzureAdapter):
     
     def get_extras(self) -> dict:
         extras = super().get_extras()
-        extras['normalized_os'] = self._normalize_vm_os_from_payload(self.raw_resource.get("properties", {}))
+        extras['normalized_os'] = self._normalize_vm_os_from_payload()
         return extras

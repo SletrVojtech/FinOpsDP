@@ -16,13 +16,15 @@ from policy_templates.policy_crafter import CrafterFactory
 from policy import InMemoryPullMode
 from rabbitmq.connector import RabbitMQClient
 from rabbitmq.message import IngestionMessage
-from metrics_collector.message_adapters import AwsAdapter, AzureAdapter
+from metrics_collector.message_adapters import AdapterFactory
 from metrics_collector.config_parser import ConfigParser
 
 
 
 
 log = logging.getLogger('metrics_collector')
+
+
 
 #TODO Split apart
 def run_account_in_memory(account, region, policy_data, output_dir, debug=False):
@@ -85,34 +87,30 @@ def run_account_in_memory(account, region, policy_data, output_dir, debug=False)
                     res_type = policy.resource_type
                     # Parse each returned resource into a RabbitMQ message
                     for raw_resource in resources:
-                            if provider == 'aws':
-                                adapter = AwsAdapter(
-                                    raw_resource, 
-                                    account_id=account.get('account_id', 'unknown'),
-                                    resource_type=res_type,
-                                    region_name=region,
-                                    policy_name=policy.name,
-                                )
-                            elif provider == 'azure':
-                                adapter = AzureAdapter(
-                                    raw_resource,
-                                    resource_type=res_type,
-                                    policy_name=policy.name,
-                                )
-                            else:
-                                log.warning(f"Unknown cloud provider: {provider}")
-                                continue
-                            
-                            metrics_payload = adapter.to_payloads()
-                            
-                            msg = IngestionMessage(
-                                source_module="custodian",
-                                payload=metrics_payload.model_dump()
+                        kwargs = {
+                            'policy_name': policy.name,
+                        }
+                        if provider == 'aws':
+                            kwargs['account_id'] = account.get('account_id', 'unknown')
+                            kwargs['region_name'] = region
+
+                        adapter = AdapterFactory.create(
+                                provider=provider, 
+                                res_type=res_type, 
+                                raw_resource=raw_resource, 
+                                **kwargs
                             )
-                            mq_client.publish(
-                                queue_name="data_ingestion", 
-                                message=msg.model_dump_json()
-                            )
+                        
+                        metrics_payload = adapter.to_payloads()
+                        
+                        msg = IngestionMessage(
+                            source_module="custodian",
+                            payload=metrics_payload.model_dump()
+                        )
+                        mq_client.publish(
+                            queue_name="data_ingestion", 
+                            message=msg.model_dump_json()
+                        )
 
                     log.info(
                         "Ran account:%s region:%s policy:%s matched:%d time:%0.2f",
@@ -130,6 +128,10 @@ def run_account_in_memory(account, region, policy_data, output_dir, debug=False)
                         "Exception running policy:%s account:%s region:%s error:%s",
                         policy.name, account['name'], region, e)
                     continue
+                except ValueError as e:
+                    log.warning(e)
+                    if not debug:
+                        continue
                 except Exception as e:
                     success = False
                     log.error(

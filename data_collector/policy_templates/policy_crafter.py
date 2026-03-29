@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 import string
+from policy_templates.metric_definition import get_metric_behavior
 
 class PolicyCrafter(ABC):
     """Abstract class for supported providers"""
@@ -44,9 +45,12 @@ class AWSPolicyCrafter(PolicyCrafter):
 
     def craft(self,resource: str, unified_name:str, metric: str,timeframe_hours: int, period: str = 'PT5M', agg='avg'):
         days_back = timeframe_hours / 24.0
-        aws_stat = self.AGGREGATION_MAP.get(agg.lower(), 'Average')
+        name = self.craft_name(resource,unified_name, agg)
+        aws_stat = get_metric_behavior(name).fetch_stat
+        aws_stat = self.AGGREGATION_MAP.get(aws_stat.lower(), 'Average')
+
         POLICY_DATA = {
-        'name': self.craft_name(resource,unified_name, agg), 
+        'name': name, 
         'resource': resource, 
         'filters': [{
              'type': 'metrics', 
@@ -71,9 +75,11 @@ class AzurePolicyCrafter(PolicyCrafter):
     }
 
     def craft(self,resource: str, unified_name:str, metric: str,timeframe_hours: int, period: str = 'PT5M', agg='avg'):
-        azure_stat = self.AGGREGATION_MAP.get(agg.lower(), 'average')
+        name = self.craft_name(resource,unified_name, agg)
+        azure_stat = get_metric_behavior(name).fetch_stat
+        azure_stat = self.AGGREGATION_MAP.get(azure_stat.lower(), 'average')
         POLICY_DATA = {
-            'name':  self.craft_name(resource,unified_name, agg),
+            'name': name,
             'resource': resource,
             'filters': [{
                 'type': 'metric',

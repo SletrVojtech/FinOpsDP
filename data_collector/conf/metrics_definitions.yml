@@ -2,14 +2,6 @@ metrics_dictionary:
   cpu_usage:
     aws: "CPUUtilization"
     azure: "Percentage CPU"
-  disk_write:
-    # for azure.disk and aws.EBS
-    aws: "VolumeWriteBytes"
-    azure: "Composite Disk Write Bytes/sec"
-  disk_read:
-    # for azure.disk and aws.EBS
-    aws: "VolumeReadBytes"
-    azure: "Composite Disk Read Bytes/sec"
   mem_available:
     azure: "Available Memory Percentage"
     # aws doesn't export natively
@@ -19,3 +11,24 @@ metrics_dictionary:
   net_out:
     azure: "Network Out Total"
     aws: "NetworkOut"
+  disk_read_bytes:
+    aws: "EBSReadBytes"
+    azure: "Disk Read Bytes"
+  disk_write_bytes:
+    aws: "EBSWriteBytes"
+    azure: "Disk Write Bytes"
+  disk_read_ops:
+    aws: "EBSReadOps"
+    azure: "Disk Read Operations/Sec"
+  disk_write_ops:
+    aws: "EBSWriteOps"
+    azure: "Disk Write Operations/Sec"
+  disk_write:
+    # for azure.disk and aws.EBS
+    aws: "VolumeWriteBytes"
+    azure: "Composite Disk Write Bytes/sec"
+  disk_read:
+    # for azure.disk and aws.EBS
+    aws: "VolumeReadBytes"
+    azure: "Composite Disk Read Bytes/sec"
+  

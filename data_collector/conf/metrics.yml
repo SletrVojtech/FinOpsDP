@@ -1,28 +1,44 @@
 run_frequency_hours: 1
 granularity: "PT5M"
 measure:
+  - resource: aws.ec2
+    measurement:
+      - metric: cpu_usage
+        aggregate: ["avg", "max"]
+      - metric: net_in
+        aggregate: ["avg"]
+      - metric: net_out
+        aggregate: ["avg"]
+      - metric: disk_read_bytes
+        aggregate: ["avg"]
+      - metric: disk_write_bytes
+        aggregate: ["avg"]
+      - metric: disk_read_ops
+        aggregate: ["avg"]
+      - metric: disk_write_ops
+        aggregate: ["avg"]
+  - resource: aws.ebs
+    measurement:
+      - metric: disk_write
+      - metric: disk_read
   - resource: azure.vm
     measurement:
       - metric: cpu_usage
         aggregate: ["avg", "max"]
       - metric: mem_available
       - metric: net_in
-        aggregate: ["sum"]
+        aggregate: ["avg"]
       - metric: net_out
-        aggregate: ["sum"]
+        aggregate: ["avg"]
+      - metric: disk_read_bytes
+        aggregate: ["avg"]
+      - metric: disk_write_bytes
+        aggregate: ["avg"]
+      - metric: disk_read_ops
+        aggregate: ["avg"]
+      - metric: disk_write_ops
+        aggregate: ["avg"]
   - resource: azure.disk
-    measurement:
-      - metric: disk_write
-      - metric: disk_read
-  - resource: aws.ec2
-    measurement:
-      - metric: cpu_usage
-        aggregate: ["avg", "max"]
-      - metric: net_in
-        aggregate: ["sum"]
-      - metric: net_out
-        aggregate: ["sum"]
-  - resource: aws.ebs
     measurement:
       - metric: disk_write
       - metric: disk_read
