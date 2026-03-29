@@ -39,13 +39,41 @@ def run_catalog_collector():
         payload=payload_dict
     )
     with RabbitMQClient() as rmq:
-        rmq.publish(
-            queue_name="data_ingestion", 
-            message=message.model_dump_json()
-        )
-    print(message)
-    return message
+        len_hw = len(all_hw)
+        len_price = len(all_pricing)
+        id_hw = 0
+        id_price = 0
+
+        while id_hw < len_hw:
+            max_id_hw = min(id_hw + 1000, len_hw)
+            payload_dict = {
+                "hardware_records": all_hw[id_hw:max_id_hw],
+            }
+            message = IngestionMessage(
+                source_module="catalog_downloader",
+                payload=payload_dict
+            )
+            rmq.publish(
+                queue_name="data_ingestion", 
+                message=message.model_dump_json()
+            )
+            id_hw = max_id_hw
+        
+        while id_price < len_price:
+            max_id_price = min(id_price + 1000, len_price)
+            payload_dict = {
+                "pricing_records": all_pricing[id_price:max_id_price],
+            } 
+            message = IngestionMessage(
+                source_module="catalog_downloader",
+                payload=payload_dict
+            )
+            rmq.publish(
+                queue_name="data_ingestion", 
+                message=message.model_dump_json()
+            )
+            id_price = max_id_price
+
 
 if __name__ == "__main__":
-    msg = run_catalog_collector()
-    print(json.dumps(msg.payload["pricing_records"][:2], indent=2))
+    run_catalog_collector()

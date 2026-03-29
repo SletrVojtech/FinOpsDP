@@ -9,7 +9,7 @@ class CloudPricingDownloader(ABC):
 
     @abstractmethod
     def fetch_pricing(self) -> List[Dict[str, Any]]:
-        """Vrátí list normalizovaných cen pro zadané regiony."""
+        """Returns list of PricingRecords"""
         pass
 
 class AzurePricingDownloader(CloudPricingDownloader):
@@ -18,6 +18,24 @@ class AzurePricingDownloader(CloudPricingDownloader):
     https://learn.microsoft.com/en-us/rest/api/cost-management/retail-prices/azure-retail-prices
     """
     BASE_URL = "https://prices.azure.com/api/retail/prices"
+
+    def normalize_azure_pricing_os(self, azure_product_name: str) -> str:
+        """
+        Parse OS name from the Azure product name.
+        """
+        if not azure_product_name:
+            return "Linux"
+            
+        name_lower = azure_product_name.lower()
+        
+        if "red hat" in name_lower or "rhel" in name_lower:
+            return "RHEL"
+        elif "suse" in name_lower or "sles" in name_lower:
+            return "SUSE"
+        elif "windows" in name_lower:
+            return "Windows"
+            
+        return "Linux"
 
     def fetch_pricing(self) -> List[Dict[str, Any]]:
         pricing_list = []
@@ -40,8 +58,8 @@ class AzurePricingDownloader(CloudPricingDownloader):
                 if "Spot" in item.get("meterName", ""):
                     continue
                 
-                # Symplifying the OS
-                os_type = "Windows" if "Windows" in item.get("productName") else "Linux"
+                # Simplifying the OS
+                os_type = self.normalize_azure_pricing_os(item.get("productName"))
                 
                 record = PricingRecord(
                     cloud= "azure",
@@ -64,6 +82,25 @@ class AWSPricingDownloader(CloudPricingDownloader):
     def __init__(self):
         # API for list of all regions
         self.index_url = "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonEC2/current/region_index.json"
+
+    def _normalize_aws_pricing_os(self, aws_os_string: str) -> str:
+        """
+        Unify the oprating system string for AWS.
+        """
+        if not aws_os_string:
+            return "Linux"
+            
+        os_lower = aws_os_string.lower()
+        
+        if "red hat" in os_lower or "rhel" in os_lower:
+            return "RHEL"
+        elif "suse" in os_lower or "sles" in os_lower:
+            return "SUSE"
+            
+        elif "windows" in os_lower:
+            return "Windows"
+            
+        return "Linux"
 
     def fetch_pricing(self) -> List[Dict[str, Any]]:
         pricing_list = []
@@ -107,7 +144,7 @@ class AWSPricingDownloader(CloudPricingDownloader):
                             cloud="aws",
                             instance_type=attrs.get("instanceType"),
                             region=region_code,
-                            os=attrs.get("operatingSystem"),
+                            os=self._normalize_aws_pricing_os(attrs.get("operatingSystem")),
                             hourly_price_usd=price_usd
                         )
                         pricing_list.append(record)

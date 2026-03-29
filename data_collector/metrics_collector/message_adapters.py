@@ -2,9 +2,38 @@ from rabbitmq.message import IngestionMessage
 from metrics_collector.message import MetricsPayload
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple, Type
 
 import datetime
+
+class AdapterFactory:
+    """Registry mapping for adapters"""
+    _registry: Dict[Tuple[str, str], Type] = {}
+
+    @classmethod
+    def register(cls, provider: str, resource_type: str):
+        """Registration of adapters using decorators."""
+        def inner_wrapper(wrapped_class):
+            cls._registry[(provider, resource_type)] = wrapped_class
+            return wrapped_class
+        return inner_wrapper
+
+    @classmethod
+    def create(cls, provider: str, res_type: str, raw_resource: dict, **kwargs):
+        """Returns the best fitting message adapter."""
+        res_type = res_type.split(".")[-1]
+        # Specific adapter
+        adapter_class = cls._registry.get((provider, res_type))
+        
+        # Default cloud adapter
+        if not adapter_class:
+            adapter_class = cls._registry.get((provider, 'default'))
+            
+        # Unknown cloud provider.
+        if not adapter_class:
+            raise ValueError(f"Unknown cloud provider or missing adapter for: {provider}")
+            
+        return adapter_class(raw_resource, resource_type=res_type, **kwargs)
 
 class BaseCloudAdapter(ABC):
     """Downloaded metrics to RabbitMQ MetricsPayload message adapter class"""
@@ -65,7 +94,7 @@ class BaseCloudAdapter(ABC):
             extras=self.get_extras()
         )
 
-
+@AdapterFactory.register('azure', 'default')
 class AzureAdapter(BaseCloudAdapter):
     def get_provider(self) -> str:
         return "azure"
@@ -143,7 +172,7 @@ class AzureAdapter(BaseCloudAdapter):
 
 
 
-
+@AdapterFactory.register('aws', 'default')
 class AwsAdapter(BaseCloudAdapter):
     def get_provider(self) -> str:
         return "aws"
@@ -213,3 +242,73 @@ class AwsAdapter(BaseCloudAdapter):
     def get_extras(self) -> Dict[str, Any]:
         return {}
 
+@AdapterFactory.register('aws', 'ec2')
+class AwsEc2Adapter(AwsAdapter):
+    """Class for parsing extra metadata from EC2 instances."""
+
+    def _normalize_aws_os_from_payload(self) -> str:
+        """
+            Unify OS type Linux/windows/RedHat/SUSE
+        """
+        vm_properties = self.raw_data
+        
+        platform_details = vm_properties.get("PlatformDetails", "").lower()
+        
+        if "red hat" in platform_details or "rhel" in platform_details:
+            return "RHEL"
+        elif "suse" in platform_details or "sles" in platform_details:
+            return "SUSE"
+        elif "windows" in platform_details:
+            return "Windows"
+        elif "linux/unix" in platform_details:
+            return "Linux"
+            
+        platform = vm_properties.get("Platform", "").lower()
+        if platform == "windows":
+            return "Windows"
+            
+        # Fallback
+        return "Linux"
+
+    def get_extras(self) -> dict:
+        extras = super().get_extras()
+        extras['normalized_os'] = self._normalize_aws_os_from_payload()
+        return extras
+
+@AdapterFactory.register('azure', 'vm')
+class AzureVmAdapter(AzureAdapter):
+    """Class for parsing extra metadata from VM instances."""
+
+    def _normalize_vm_os_from_payload(self) -> str:
+        """
+        Unify OS type Linux/windows/RedHat/SUSE
+        """
+        vm_properties = self.raw_resource.get("properties", {})
+        storage_profile = vm_properties.get("storageProfile", {})
+        
+        # Try to parse ImageReference
+        image_ref = storage_profile.get("imageReference", {})
+        publisher = image_ref.get("publisher", "").lower()
+        offer = image_ref.get("offer", "").lower()
+        
+        if "redhat" in publisher or "rhel" in offer:
+            return "RHEL"
+        elif "suse" in publisher or "sles" in offer:
+            return "SUSE"
+        
+        # Identify by osType
+        os_disk = storage_profile.get("osDisk", {})
+        os_type = os_disk.get("osType", "").lower()
+        
+        if os_type == "windows":
+            return "Windows"
+        elif os_type == "linux":
+            return "Linux"
+            
+        # Fallback for custom images that should have base Linux pricing
+        return "Linux"
+    
+    def get_extras(self) -> dict:
+        extras = super().get_extras()
+        extras['normalized_os'] = self._normalize_vm_os_from_payload(self.raw_resource.get("properties", {}))
+        return extras

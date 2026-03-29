@@ -3,6 +3,7 @@ import requests
 from typing import Dict, Any, List
 from abc import ABC, abstractmethod
 from catalog_collector.message import HardwareRecord
+import re
 
 class CloudHardwareDownloader(ABC):
     """Abstract class for hardware downloader"""
@@ -86,6 +87,11 @@ class AWSHardwareDownloader(CloudHardwareDownloader):
                 memory_mb = itype.get('MemoryInfo', {}).get('SizeInMiB')
                 ebs_info = itype.get('EbsInfo', {}).get('EbsOptimizedInfo', {})
                 net_info = itype.get('NetworkInfo', {})
+                network_performance = net_info.get('NetworkPerformance')
+                match = re.search(r'(\d+)\s*Gigabit', network_performance, re.IGNORECASE)
+                perf = 0.0
+                if match:
+                    perf = float(match.group(1)) * 1000.0
                 
                 record = HardwareRecord(
                     cloud="aws",
@@ -95,7 +101,7 @@ class AWSHardwareDownloader(CloudHardwareDownloader):
                     memory_gb=memory_mb / 1024.0,
                     baseline_iops=ebs_info.get('BaselineIops'),
                     baseline_throughput_mbps=ebs_info.get('BaselineBandwidthInMbps'),
-                    network_performance=net_info.get('NetworkPerformance')
+                    network_performance=str(perf)
                 )
                 hardware_list.append(record)
         return hardware_list
