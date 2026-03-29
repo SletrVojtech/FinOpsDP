@@ -119,7 +119,32 @@ SCHEMA_DEFINITIONS = {
 
          UNIQUE(EntityId, WorkloadType, WorkloadName, ContainerName)
     );
-"""
+    """,
+    "hardwarecatalog":"""
+    CREATE TABLE HardwareCatalog (
+        cloud VARCHAR(50) NOT NULL,
+        instance_type VARCHAR(100) NOT NULL,
+        instance_family VARCHAR(100),
+        vcpu INTEGER,
+        memory_gb NUMERIC(10, 2),
+        baseline_iops INTEGER,
+        baseline_throughput_mbps NUMERIC(15, 2),
+        network_performance VARCHAR(100),
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (cloud, instance_type)
+    );
+    """,
+    "pricingcatalog":"""
+    CREATE TABLE pricingcatalog (
+        cloud VARCHAR(50) NOT NULL,
+        instance_type VARCHAR(100) NOT NULL,
+        region VARCHAR(100) NOT NULL,
+        os VARCHAR(50) NOT NULL,
+        hourly_price_usd NUMERIC(15, 6) NOT NULL,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (cloud, instance_type, region, os)
+    );
+    """
 }
 
 def cagg_first_metrics(name:str, interval:str):

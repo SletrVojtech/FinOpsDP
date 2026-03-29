@@ -40,7 +40,7 @@ def run_catalog_collector():
     )
     with RabbitMQClient() as rmq:
         rmq.publish(
-            queue_name="instace_catalog", 
+            queue_name="data_ingestion", 
             message=message.model_dump_json()
         )
     print(message)
