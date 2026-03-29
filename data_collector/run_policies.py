@@ -10,16 +10,30 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+level = logging.INFO
+logging.basicConfig(
+    level=level,
+    format="%(asctime)s: %(name)s:%(levelname)s %(message)s",
+    force=True)
+
+logging.getLogger().setLevel(level)
+logging.getLogger('pika').setLevel(logging.ERROR)
+logging.getLogger('azure').setLevel(logging.ERROR)
+log = logging.getLogger("finops_cli")
+log.handlers.clear()
+
 from db_loader.db_loader import DBLoader
 from metrics_collector.run_collection import run_metrics_collector
 from kube_collector.run_collection import run_kube_collection
 from cost_collector.run_collection import run_cost_downloads
 from metrics_collector.config_parser import ConfigParser
+from catalog_collector.run_collection import run_catalog_collector
 
 
 
-log = logging.getLogger("finops_cli")
-logging.getLogger('pika').setLevel(logging.ERROR)
+
+
+
 
 def get_db_connection():
     return psycopg2.connect(
@@ -52,10 +66,11 @@ def run_scheduler():
 
     schedule.every(1).hours.do(run_metrics_collector)
     
-    schedule.every().day.at("01:00").do(run_kube_collection, hours_back=25)
+    #schedule.every().day.at("01:00").do(run_kube_collection, hours_back=120)
 
     schedule.every().day.at("03:00").do(run_cost_downloads)
-    
+    schedule.run_all()
+    log.info("Scheduler started")
     while True:
         schedule.run_pending()
         time.sleep(60)
@@ -76,6 +91,8 @@ def main():
 
     # Metrics Collector
     subparsers.add_parser("metrics", help="Download metrics using Custodian and send to RMQ")
+    # Catalog Collector
+    subparsers.add_parser("catalogs", help="Download catalogs")
 
     # Scheduler
     subparsers.add_parser("scheduler", help="Run scheduler")
@@ -86,20 +103,20 @@ def main():
     args = parser.parse_args()
 
     if args.command == "loader":
-        log.info("DB loader...")
+        log.info("DB loader")
         db_conn = get_db_connection()
         mq_conn, mq_channel = get_mq_channel()
         try:
             loader = DBLoader(db_conn, mq_channel)
             loader.start_consuming(queue_name="data_ingestion")
         except KeyboardInterrupt:
-            log.info("Closing...")
+            log.info("Closing")
         finally:
             db_conn.close()
             mq_conn.close()
 
     elif args.command == "kube":
-        log.info(f"Kube collector (history: {args.hours}h)...")
+        log.info(f"Kube collector (history: {args.hours}h)")
         run_kube_collection(hours_back=args.hours)
         log.info("Done.")
 
@@ -109,8 +126,12 @@ def main():
         log.info("Done.")
 
     elif args.command == "metrics":
-        log.info("Running metrics collection (using Custodian)...")
+        log.info("Running metrics collection (using Custodian)")
         run_metrics_collector()
+        log.info("Done.")
+    elif args.command == "catalogs":
+        log.info("Running catalog collection")
+        run_catalog_collector()
         log.info("Done.")
     elif args.command == "scheduler":
         try:
