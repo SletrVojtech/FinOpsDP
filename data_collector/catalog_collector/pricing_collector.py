@@ -54,9 +54,10 @@ class AzurePricingDownloader(CloudPricingDownloader):
             data = response.json()
             
             for item in data.get("Items", []):
-                # Ignore spot instances
-                if "Spot" in item.get("meterName", ""):
-                    continue
+                meter_name = item.get("meterName", "").lower()          
+                # Ignore Spot, Low Priority and Promo
+                if "spot" in meter_name or "low priority" in meter_name or "promo" in meter_name:
+                        continue
                 
                 # Simplifying the OS
                 os_type = self.normalize_azure_pricing_os(item.get("productName"))
@@ -130,7 +131,10 @@ class AWSPricingDownloader(CloudPricingDownloader):
                 attrs = product.get("attributes", {})
                 
                 # Filter out available instances
-                if product.get("productFamily") != "Compute Instance" or attrs.get("tenancy") != "Shared" or attrs.get("capacitystatus") != "Used":
+                if (product.get("productFamily") != "Compute Instance" or
+                    attrs.get("tenancy") != "Shared" or
+                    attrs.get("capacitystatus") != "Used" or
+                    attrs.get("preInstalledSw") != "NA"): # only basic instances
                     continue
                 
                 
