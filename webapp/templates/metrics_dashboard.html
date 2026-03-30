@@ -29,6 +29,13 @@
         </div>
     </div>
 
+    <div id="recommendation-panel">
+        <h3 style="margin-top: 0;">FinOps Doporučení (Rightsizing)</h3>
+        <div id="recommendation-content">
+            <p>Počítám doporučení</p>
+        </div>
+    </div>
+
     <div id="charts-container" >
         {% for metric in available_metrics %}
             <div >
@@ -134,6 +141,63 @@ async function renderAllCharts() {
         }
     });
     }
+
+    // Get the days from time range
+    function getAnalysisDays(timeRangeString) {
+        if (timeRangeString.includes('hours')) return 1;
+        const match = timeRangeString.match(/\d+/);
+        return match ? parseInt(match[0]) : 30;
+    }
+
+    // Get a rightsizing reccomendation
+    async function fetchRecommendation() {
+        const entityId = "{{ entity_id }}";
+        const timeRange = document.getElementById('timeRangeSelect').value;
+        const analysisDays = getAnalysisDays(timeRange);
+        
+        const contentDiv = document.getElementById('recommendation-content');
+        contentDiv.innerHTML = '<p>Počítám doporučení na základě vybraného období</p>';
+
+        try {
+            const response = await fetch(`/api/v1/downsizing/${entityId}?analysis_days=${analysisDays}`);
+            const data = await response.json();
+
+            if (data.status === "error") {
+                contentDiv.innerHTML = `<p style="color: red;">Chyba: ${data.message}</p>`;
+                return;
+            }
+
+            if (data.action === "none") {
+                contentDiv.innerHTML = `<p> <strong>${data.message || "Instance je optimální."}</strong> (Současný typ: ${data.current_instance || "Neznámý"})</p>`;
+                return;
+            }
+
+            // Better option was found
+            if (data.action === "downsize_recommended") {
+                const fin = data.financials;
+                contentDiv.innerHTML = `
+                    <p><strong>Doporučená změna:</strong> Změnit z <code>${data.current_instance}</code> na <code style="color: green; font-size: 1.1em;">${data.recommended_instance}</code></p>
+                    <ul>
+                        <li>Odhadovaná měsíční úspora: <strong>$${fin.estimated_monthly_savings_usd}</strong> (${fin.savings_percentage}% dolů)</li>
+                        <li>Současná denní cena: $${fin.current_actual_daily_cost_usd} -> Nová denní cena: $${fin.projected_daily_cost_usd}</li>
+                    </ul>
+                    <p style="font-size: 0.9em; color: #666;">
+                        (Vypočteno na základě ${analysisDays} dní. Max CPU P95: ${data.telemetry_used.cpu_p95}%)
+                    </p>
+                `;
+            }
+
+        } catch (error) {
+            console.error("Chyba při stahování doporučení:", error);
+            contentDiv.innerHTML = `<p style="color: red;">Nepodařilo se načíst doporučení.</p>`;
+        }
+    }
+
+    // Recalculate reccomendation on time change
+    document.getElementById('timeRangeSelect').addEventListener('change', fetchRecommendation);
+
+    // first run
+    fetchRecommendation();
 
     // Recalculate on change
     document.getElementById('timeRangeSelect').addEventListener('change', renderAllCharts);

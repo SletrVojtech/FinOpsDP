@@ -6,6 +6,8 @@ from services import cost_service
 from services.utils import extract_active_tags
 from datetime import date
 from pydantic import BaseModel
+from services import downsizing as downsizing_service
+from typing import List
 from services.utils import extract_active_tags
 import crud.costs as cost
 from crud import allocations
@@ -105,3 +107,26 @@ def api_delete_allocation(request: Request, rule_id: int, cursor = Depends(get_d
     allocations.delete_allocation_rule(cursor, rule_id)
     cursor.connection.commit()
     return {"status": "success"}
+
+@router.get("/downsizing/{entity_id}")
+def get_downsizing_recommendation(
+    entity_id: int,
+    analysis_days: int = Query(30, description="Počet dní pro analýzu"),
+    target_cpu: float = Query(60.0, description="Cílové zatížení CPU v %"),
+    target_ram: float = Query(80.0, description="Cílové zatížení RAM v %"),
+    excluded_filters: List[str] = Query(default=[], description="Filtry instancí k vyloučení"),
+    cursor = Depends(get_db_cursor)
+):
+    """
+    Returns a reccomendation for downsizing given instance.
+    """
+    result = downsizing_service.evaluate_downsizing(
+        db_cursor=cursor,
+        resource_id=entity_id,
+        analysis_days=analysis_days,
+        target_cpu_util=target_cpu,
+        target_ram_util=target_ram,
+        excluded_filters=excluded_filters
+    )
+    
+    return result

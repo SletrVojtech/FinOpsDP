@@ -88,7 +88,6 @@ def set_budget(cursor, scope_id: int, tags_filter: dict, target_month: date, amo
     
     existing_row = cursor.fetchone()
 
-    # 2. Větvení: INSERT nebo UPDATE
     if existing_row:
         cursor.execute("""
             UPDATE Budgets SET LimitAmount = %s 
