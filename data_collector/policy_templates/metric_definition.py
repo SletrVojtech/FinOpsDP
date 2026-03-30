@@ -21,7 +21,9 @@ METRICS_CATALOG = {
     "aws_ec2_net_out_avg": MetricDefinition(fetch_stat="sum", transform=lambda v, p: (v * 8) / p if p > 0 else 0),
     "azure_vm_net_in_avg": MetricDefinition(fetch_stat="sum", transform=lambda v, p: (v * 8) / p if p > 0 else 0),
     "azure_vm_net_out_avg": MetricDefinition(fetch_stat="sum", transform=lambda v, p: (v * 8) / p if p > 0 else 0),
+    "azure_vm_mem_used_avg": MetricDefinition(fetch_stat="avg", transform=lambda v, p: 100.0-v),
 }
+    
 
 def get_metric_behavior(metric_name: str) -> MetricDefinition:
     """Returns specific metric behaviour for unsuported aggregation modes"""

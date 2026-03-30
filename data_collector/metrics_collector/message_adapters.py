@@ -162,7 +162,7 @@ class AzureAdapter(BaseCloudAdapter):
                                         point.get("total",
                                         point.get("count", 0.0)))))
                 clean_datapoints.append({
-                    "timestamp": datetime.datetime.fromtimestamp(time).isoformat(),
+                    "timestamp": datetime.datetime.fromtimestamp(time, tz=datetime.timezone.utc).isoformat(),
                     "value": behavior.transform(val, 300)
                 })
         except (KeyError, IndexError):
@@ -240,7 +240,7 @@ class AwsAdapter(BaseCloudAdapter):
                                         point.get("Sum",
                                         point.get("SampleCount", 0.0)))))
             clean_datapoints.append({
-                "timestamp": datetime.datetime.fromtimestamp(time).isoformat(),
+                "timestamp": datetime.datetime.fromtimestamp(time, tz=datetime.timezone.utc).isoformat(),
                 "value": behavior.transform(val, 300)
             })
             
@@ -279,7 +279,8 @@ class AwsEc2Adapter(AwsAdapter):
 
     def get_extras(self) -> dict:
         extras = super().get_extras()
-        extras['normalized_os'] = self._normalize_aws_os_from_payload()
+        extras['normalized_os'] = self._normalize_aws_os_from_payload().lower()
+        extras['instance_type'] = self.raw_data.get('InstanceType', 'unknown').lower()
         return extras
 
 @AdapterFactory.register('azure', 'vm')
@@ -317,5 +318,8 @@ class AzureVmAdapter(AzureAdapter):
     
     def get_extras(self) -> dict:
         extras = super().get_extras()
-        extras['normalized_os'] = self._normalize_vm_os_from_payload()
+        extras['normalized_os'] = self._normalize_vm_os_from_payload().lower()
+        vm_properties = self.raw_data.get("properties", {})
+        hardware_profile = vm_properties.get("hardwareProfile", {})
+        extras['instance_type'] = hardware_profile.get('vmSize', 'unknown').lower()
         return extras

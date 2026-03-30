@@ -13,7 +13,7 @@ def test_rabbitmq_connect_and_close(mock_pika):
     client.connect()
 
     # Assert for connection
-    mock_pika.PlainCredentials.assert_called_once_with('finops', 'finops_password')
+    mock_pika.PlainCredentials.assert_called_once_with('user', 'password')
     mock_pika.BlockingConnection.assert_called_once()
     assert client.connection is not None
     assert client.channel is not None
