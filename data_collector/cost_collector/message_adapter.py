@@ -44,7 +44,10 @@ class FocusCostAdapter:
     def to_payload(self) -> CostPayload:
         return CostPayload(
             provider=self.get_provider(),
+            billing_id=str(self.row.get('BillingAccountId', 'Unknown')),
+            billing_name=str(self.row.get('BillingAccountName', 'Unknown')),
             account_id=self.get_account_id(),
+            account_name=str(self.row.get('SubAccountName', 'Unknown')),
             region_id=str(self.row.get('RegionId', 'Unknown')),
             
             resource_id=self.get_resource_id(),

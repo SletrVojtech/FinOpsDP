@@ -18,6 +18,9 @@ def run_azure_worker_process(scope_type, scope_id, output_dir, export_name=None)
 
 
 class AWS_Export_Worker:
+    """
+    Class for finding an CUR export for given AWS account, search for the lastest run and download the files.
+    """
     
 
     def __init__(self, account, export_name, region, output_dir):
@@ -31,6 +34,9 @@ class AWS_Export_Worker:
         self.log = logging.getLogger("cost_download_worker")
 
     def _get_export(self):
+        """
+        Find configured CUR among all available exports.
+        """
         target_arn = None
         self.session = get_session(self.account, 'custodian', self.region)
         bcm = self.session.client('bcm-data-exports')
@@ -52,6 +58,7 @@ class AWS_Export_Worker:
         return dest['S3Bucket'], dest['S3Prefix']
     
     def _find_newest_Manifest(self):
+        """ From the latest run of the export, find the manifest with locations of the data files."""
         # Based on https://docs.aws.amazon.com/boto3/latest/reference/services/s3/paginator/ListObjectsV2.html
         manifest_prefix = f"{self.prefix}/{self.export_name}/metadata/"
         paginator = self.s3.get_paginator('list_objects_v2')
@@ -68,7 +75,9 @@ class AWS_Export_Worker:
             return None
 
         return latest_manifest_key
+    
     def _download_files(self, latest_manifest_key):
+        """ Download the data files and temporalily save them. """
         downloaded_files = []
         manifest_obj = self.s3.get_object(Bucket=self.bucket, Key=latest_manifest_key)
         manifest_data = json.loads(manifest_obj['Body'].read().decode('utf-8'))

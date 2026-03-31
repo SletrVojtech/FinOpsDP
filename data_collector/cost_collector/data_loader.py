@@ -24,7 +24,10 @@ class CostDataLoader:
         query = f"""
             SELECT 
                 ProviderName,
+                BillingAccountId,
+                BillingAccountName,
                 SubAccountId,
+                SubAccountName,
                 RegionId,
                 COALESCE(ResourceId, SubAccountId || ':general') AS resource_id,
 
@@ -40,11 +43,11 @@ class CostDataLoader:
                 ANY_VALUE(Tags) AS Tags,
                 MAX(CAST(ChargePeriodEnd AS TIMESTAMP)) AS charge_period_end,
                 
-                SUM(BilledCost) AS billed_cost
+                SUM(EffectiveCost) AS billed_cost
             FROM read_csv_auto('{export_folder_pattern}', header=True)
-            WHERE BilledCost != 0 
+            WHERE EffectiveCost != 0 AND ChargeCategory != 'Credit'
             AND CAST(ChargePeriodStart AS TIMESTAMP) >= CAST('{cutoff_date}' AS TIMESTAMP)
-            GROUP BY 1, 2, 3, 4, 5, 6, 7, 8, 9
+            GROUP BY 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12
         """
         
         try:

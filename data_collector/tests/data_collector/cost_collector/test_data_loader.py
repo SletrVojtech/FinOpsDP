@@ -33,7 +33,7 @@ def test_process_and_publish_batches(mock_duckdb_connect):
     
     # Check the SQL parameters
     sql_query = mock_con.execute.call_args[0][0]
-    assert "WHERE BilledCost != 0" in sql_query
+    assert "WHERE EffectiveCost != 0" in sql_query
     
     # 2 RMQ publish calls
     assert mock_rmq.publish.call_count == 2

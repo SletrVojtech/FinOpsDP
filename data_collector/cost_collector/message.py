@@ -5,7 +5,10 @@ from datetime import datetime
 class CostPayload(BaseModel):
     # Entity identification
     provider: str
+    billing_id: str
+    billing_name: str
     account_id: str
+    account_name: str
     region_id: str
     resource_id: str
     resource_name: str

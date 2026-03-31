@@ -6,7 +6,7 @@ from db_loader.cost_processor import CostsProcessor
 def mock_db():
     db_conn = MagicMock()
     # fetchone for _upsert_single_parent returns ID=10
-    db_conn.cursor.return_value.fetchone.return_value = [10]
+    db_conn.cursor.return_value.fetchone.side_effect = [[10], [11]]
     return db_conn
 
 def test_cost_processor_process(mock_db):
@@ -18,7 +18,10 @@ def test_cost_processor_process(mock_db):
     mock_record = MagicMock()
     mock_record.resource_id = "i-12345678"
     mock_record.provider = "aws"
-    mock_record.account_id = "111122223333"
+    mock_record.billing_id = "111122223333"
+    mock_record.billing_name = "aws-account"
+    mock_record.account_id = "11112222333344"
+    mock_record.account_name = "prod-account"
     mock_record.resource_name = "aws-ec2-test"
     mock_record.resource_type = "aws_ec2"
     mock_record.tags = {"env": "prod"}
@@ -50,12 +53,20 @@ def test_cost_processor_process(mock_db):
             processor.process(envelope)
 
     # Assert
-    # Check if AWS account (parent entity) was created
+    # Check if AWS account and billing account (parent entities) were created
     cursor = mock_db.cursor.return_value
-    assert cursor.execute.call_count == 1
-    parent_args = cursor.execute.call_args[0][1]
-    assert parent_args[0] == "111122223333" # Account ID
-    assert parent_args[3] == "aws_account"  # type
+    assert cursor.execute.call_count == 2
+    # billing_account
+    billing_args = cursor.execute.call_args_list[0][0][1]
+    assert billing_args[0] == "111122223333" # billing_id
+    assert billing_args[3] == "billing_account"
+    assert billing_args[4] == 0
+
+    # aws_account
+    aws_args = cursor.execute.call_args_list[1][0][1]
+    assert aws_args[0] == "11112222333344" # account_id
+    assert aws_args[3] == "aws_account"
+    assert aws_args[4] == 10
 
     # Once for retrieving entities and Once for upserting costs
     assert mock_exec.call_count == 2

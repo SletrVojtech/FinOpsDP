@@ -57,11 +57,19 @@ class CostsProcessor:
         """
         provider = record.provider
         res_id = record.resource_id
+        billing_id = record.billing_id
+        billing_name = record.billing_name
+        account_name = record.account_name
+        
+        if billing_id not in cache:
+            cache[billing_id] = self._upsert_single_parent(billing_id, provider, billing_name, "billing_account", 0)
+        
+
 
         if provider == "aws":
             acc_id = record.account_id
             if acc_id not in cache:
-                cache[acc_id] = self._upsert_single_parent(acc_id, provider, acc_id, "aws_account", 0)
+                cache[acc_id] = self._upsert_single_parent(acc_id, provider, account_name, "aws_account", cache[billing_id])
             return cache[acc_id]
 
         elif provider == "azure":
@@ -73,7 +81,7 @@ class CostsProcessor:
                 
                 # Get Subscription
                 if sub_ext_id not in cache:
-                    cache[sub_ext_id] = self._upsert_single_parent(sub_ext_id, provider, sub_id, "subscription", 0)
+                    cache[sub_ext_id] = self._upsert_single_parent(sub_ext_id, provider, account_name, "subscription", cache[billing_id])
                 sub_db_id = cache[sub_ext_id]
 
                 # Get ResourceGroup
@@ -90,7 +98,7 @@ class CostsProcessor:
             fallback_sub_id = record.account_id
             fallback_ext = fallback_sub_id if fallback_sub_id.startswith('/') else f"/subscriptions/{fallback_sub_id}"
             if fallback_ext not in cache:
-                cache[fallback_ext] = self._upsert_single_parent(fallback_ext, provider, record.account_id, "subscription", 0)
+                cache[fallback_ext] = self._upsert_single_parent(fallback_ext, provider, record.account_name, "subscription", cache[billing_id])
             return cache[fallback_ext]
 
         return None
