@@ -1,17 +1,32 @@
-
-from datetime import date
+import calendar
+from datetime import date, timedelta
 from crud import allocations
 
 
 
-def get_daily_costs(cursor, scope_id: int = 0, tags_filter: dict = None, target_date: date = None):
+def get_daily_costs(cursor, scope_id: int = 0, tags_filter: dict = None,
+                    start_date: date = None, end_date: date = None, 
+                    target_date: date = None):
     """
-        Returns daily and accumulative data for given scope and tags in one month.
+        Returns daily and accumulative data for given scope and tags for a time window.
         Based on https://focus.finops.org/use-cases/#forecast-amortized-costs-month-over-month-based-on-historical-trends-2
         but for daily aggregation and already scoped set of IDs.
+        Uses TimescaleDB gap-filling function to ensure continuity of data.
     """
     tags_filter = tags_filter or {}
     params = []
+
+    # Backwards compability to get the current month
+    if target_date and not start_date:
+        start_date = target_date.replace(day=1)
+        _, last_day = calendar.monthrange(start_date.year, start_date.month)
+        end_date = start_date + timedelta(days=last_day)
+        
+    # Fallback fot the actual month
+    if not start_date or not end_date:
+        start_date = date.today().replace(day=1)
+        _, last_day = calendar.monthrange(start_date.year, start_date.month)
+        end_date = start_date + timedelta(days=last_day)
 
     # Scope
     base_sql = """
@@ -36,20 +51,29 @@ def get_daily_costs(cursor, scope_id: int = 0, tags_filter: dict = None, target_
 
     # Join on costs, start on the first day of given month.
     query = base_sql + filter_sql + """
-        SELECT 
-            DATE(c.ChargePeriodStart) AS cost_date,
-            SUM(c.BilledCost) AS daily_cost
+        , Gapfilled AS(
+            SELECT 
+            time_bucket_gapfill(
+                '1 day', 
+                c.ChargePeriodStart, 
+                %s::timestamptz, 
+                %s::timestamptz
+            ) AS bucket,
+            COALESCE(SUM(c.BilledCost), 0.0) AS daily_cost
         FROM Costs c
         JOIN FilteredEntities fe ON c.EntityId = fe.Id
         WHERE 
-            c.ChargePeriodStart >= DATE_TRUNC('month', %s::date)
-            AND c.ChargePeriodStart < DATE_TRUNC('month', %s::date) + INTERVAL '1 month'
-        GROUP BY DATE(c.ChargePeriodStart)
+            c.ChargePeriodStart >= %s::timestamptz
+            AND c.ChargePeriodStart < %s::timestamptz
+        GROUP BY bucket)
+        SELECT
+            bucket::date AS cost_date,
+            daily_cost
+        FROM Gapfilled
         ORDER BY cost_date ASC;
     """
     
-    target = target_date or date.today()
-    params.extend([target, target])
+    params.extend([start_date, end_date, start_date, end_date])
 
     cursor.execute(query, params)
     

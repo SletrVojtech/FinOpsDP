@@ -94,6 +94,8 @@ def get_suitable_candidates(db_cursor, provider: str, region: str, os: str,
           AND h.memory_gb >= %(req_ram)s
           AND (h.baseline_iops IS NULL OR h.baseline_iops >= %(req_iops)s)
           AND (h.baseline_throughput_mbps IS NULL OR h.baseline_throughput_mbps >= %(req_net_mbps)s)
+          AND p.hourly_price_usd IS NOT NULL 
+          AND p.hourly_price_usd > 0
           {filter_clause}
         ORDER BY p.hourly_price_usd ASC;
     """
