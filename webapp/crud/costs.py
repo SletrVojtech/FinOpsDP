@@ -136,3 +136,13 @@ def save_forecast_snapshot(cursor, scope_id: int, tags_filter: dict, target_mont
             ProjectedAmount = EXCLUDED.ProjectedAmount,
             CalculatedAt = CURRENT_TIMESTAMP;
     """, (scope_id, tags_json, target_month, today, amount))
+
+def get_namespaces_for_tags(cursor, active_tags: dict):
+    query_ns = "SELECT Id, ParentId, ResourceName FROM Entities WHERE ResourceType = 'kubernetes_namespace'"
+    params_ns = []
+    for k, v in active_tags.items():
+        query_ns += " AND Tags->>%s = %s"
+        params_ns.extend([k, v])
+    
+    cursor.execute(query_ns, params_ns)
+    return cursor.fetchall()

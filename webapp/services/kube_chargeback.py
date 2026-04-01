@@ -9,8 +9,6 @@ def get_daily_namespace_allocation(cursor, cluster_id: int,
                                    return_ui_format: bool = True):
     """Calculate daily costs of the cluster per namespace."""
 
-    print(daily_cluster_costs)
-
     if base_date and not start_date:
         start_date = base_date.replace(day=1)
         _, last_day = calendar.monthrange(start_date.year, start_date.month)
