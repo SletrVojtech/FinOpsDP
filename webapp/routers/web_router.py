@@ -7,7 +7,7 @@ from crud import entities, metrics, costs, allocations, krr
 from services.utils import humanize_memory, humanize_cpu
 from services.kube_chargeback import get_daily_namespace_allocation
 from services import cost_service as costs_service
-from datetime import date
+from datetime import date, timedelta
 
 
 router = APIRouter(tags=["Web UI"])
@@ -172,9 +172,11 @@ def cluster_cost_detail(request: Request, cluster_id: int, cursor = Depends(get_
     row = cursor.fetchone()
     cluster_name = row[0] if row else "Neznámý cluster"
 
-    base_date = date.today().replace(day=1)
+    base_date = (date.today() - timedelta(days=1)).replace(day=1)
+    target_month_str = base_date.strftime("%Y-%m")
+
     
-    forecast_data = costs_service.calculate_chargeback_forecast(cursor, cluster_id,{"cluster": cluster_name})
+    forecast_data = costs_service.calculate_chargeback_forecast(cursor, cluster_id,{"cluster": cluster_name}, target_month_str)
     daily_cluster_costs = {}
     for date_str, daily_cost in zip(forecast_data["labels"], forecast_data["actual_daily"]):
         if daily_cost is not None:
@@ -185,5 +187,5 @@ def cluster_cost_detail(request: Request, cluster_id: int, cursor = Depends(get_
         "request": request,
         "cluster_name": cluster_name,
         "chart_data": chart_data,
-        "month": base_date.strftime("%Y-%m")
+        "month": target_month_str
     })

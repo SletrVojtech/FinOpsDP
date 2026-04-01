@@ -4,9 +4,8 @@ from crud import allocations
 
 
 
-def get_daily_costs(cursor, scope_id: int = 0, tags_filter: dict = None,
-                    start_date: date = None, end_date: date = None, 
-                    target_date: date = None):
+def get_daily_costs(cursor, scope_id: int = 0, tags_filter: dict = None,target_date: date = None,
+                    start_date: date = None, end_date: date = None):
     """
         Returns daily and accumulative data for given scope and tags for a time window.
         Based on https://focus.finops.org/use-cases/#forecast-amortized-costs-month-over-month-based-on-historical-trends-2
@@ -76,8 +75,8 @@ def get_daily_costs(cursor, scope_id: int = 0, tags_filter: dict = None,
     params.extend([start_date, end_date, start_date, end_date])
 
     cursor.execute(query, params)
-    
-    return [{"date": r[0].isoformat(), "cost": float(r[1])} for r in cursor.fetchall()]
+
+    return[{"date": r[0].isoformat(), "cost": float(r[1])} for r in cursor.fetchall()]
 
 import json
 from datetime import date
