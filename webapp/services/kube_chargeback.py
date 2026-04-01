@@ -24,7 +24,7 @@ def get_daily_namespace_allocation(cursor, cluster_id: int,
     all_dates = [(start_date + timedelta(days=i)).isoformat() for i in range(delta.days)]
 
 
-    rows = kube.get_daily_cpu_allocation(cursor, cluster_id, base_date, start_date, end_date)
+    rows = kube.get_daily_cpu_allocation(cursor, cluster_id, start_date=start_date, end_date=end_date)
     raw_namespace_data = defaultdict(dict)
 
     # Reallocate the cost per namespace based on the cpu allocation

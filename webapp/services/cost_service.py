@@ -42,11 +42,13 @@ def get_aggregated_daily_costs(cursor, scope_id: int, active_tags: dict,
             
             namespace_costs = kube_chargeback.get_daily_namespace_allocation(
                 cursor, 
-                cluster_id,  
-                cluster_cost_dict =cluster_cost_dict, 
+                cluster_id,
+                base_date=None,  
+                daily_cluster_costs =cluster_cost_dict, 
                 return_ui_format=False,
                 start_date=start_date, 
                 end_date=end_date
+
             )
             
             # Add the namespaces to the costs
@@ -107,13 +109,12 @@ def calculate_chargeback_forecast(cursor, scope_id: int, active_tags: dict, targ
     if target_month:
         year, month = map(int, target_month.split('-'))
         base_date = date(year, month, 1)
-        start_date = base_date.replace(day=1)
-        _, last_day = calendar.monthrange(start_date.year, start_date.month)
-        end_date = start_date + timedelta(days=last_day)
     else:
-        start_date = date.today().replace(day=1)
-        _, last_day = calendar.monthrange(start_date.year, start_date.month)
-        end_date = start_date + timedelta(days=last_day)
+        base_date = date.today().replace(day=1)
+
+    start_date = date.today().replace(day=1)
+    _, last_day = calendar.monthrange(start_date.year, start_date.month)
+    end_date = start_date.replace(day=last_day)
 
 
     # Get daily data from DB

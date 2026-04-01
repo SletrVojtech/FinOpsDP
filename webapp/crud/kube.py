@@ -1,7 +1,7 @@
 from datetime import date, timedelta
 import calendar
 
-def get_daily_cpu_allocation(cursor, cluster_id: int, base_date: date, 
+def get_daily_cpu_allocation(cursor, cluster_id: int, base_date: date = None, 
                             start_date: date = None, end_date: date = None):
     """
     Queries for all the average namespace reservations per day for given cluster. 
