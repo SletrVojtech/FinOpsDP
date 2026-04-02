@@ -146,3 +146,12 @@ def get_namespaces_for_tags(cursor, active_tags: dict):
     
     cursor.execute(query_ns, params_ns)
     return cursor.fetchall()
+
+def get_max_date(cursor, start_date: date, end_date: date):
+    """Returns the latest available date of the costs for the given time window."""
+    cursor.execute("""
+        SELECT MAX(ChargePeriodStart)::date 
+        FROM Costs 
+        WHERE ChargePeriodStart >= %s AND ChargePeriodStart < %s
+    """, (start_date, end_date))
+    return cursor.fetchone()

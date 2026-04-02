@@ -112,21 +112,21 @@ def calculate_chargeback_forecast(cursor, scope_id: int, active_tags: dict, targ
     else:
         base_date = date.today().replace(day=1)
 
-    start_date = date.today().replace(day=1)
+    start_date = base_date.replace(day=1)
     _, last_day = calendar.monthrange(start_date.year, start_date.month)
-    end_date = start_date.replace(day=last_day)
-
+    end_date = start_date + timedelta(days=last_day)
 
     # Get daily data from DB
     cost_dict = get_aggregated_daily_costs(cursor, scope_id, active_tags, start_date=start_date, end_date=end_date)
 
     _, num_days = calendar.monthrange(base_date.year, base_date.month)
-    # How many days have to be forecasted
-    if cost_dict:
-        last_data_date = date.fromisoformat(max(cost_dict.keys()))
-        cutoff_day = last_data_date.day
+    
+    # Get the real latest date we have data for in this month globally
+    max_date_row = costs_crud.get_max_date(cursor, start_date, end_date)
+    if max_date_row and max_date_row[0]:
+        cutoff_day = max_date_row[0].day
     else:
-        cutoff_day = 0 
+        cutoff_day = 0
 
     labels = []
     actual_daily = []
