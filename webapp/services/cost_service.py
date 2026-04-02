@@ -1,6 +1,9 @@
 # web_app/services/cost_service.py
 import calendar
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime
+import pandas as pd
+from statsforecast import StatsForecast
+from statsforecast.models import AutoETS
 from crud import costs as costs_crud, allocations
 from services import kube_chargeback
 
@@ -102,8 +105,8 @@ def get_aggregated_daily_costs(cursor, scope_id: int, active_tags: dict,
 
 def calculate_chargeback_forecast(cursor, scope_id: int, active_tags: dict, target_month: str = None) -> dict:
     """
-    Calculates monthly spend and creates a Run-Rate forcast with a 7 day window.
-    Based on
+    Calculates monthly spend and creates an ML forecast with StatsForecast.
+    Includes on-the-fly anomaly detection based on prediction intervals.
     """
     # Get month
     if target_month:
@@ -116,27 +119,119 @@ def calculate_chargeback_forecast(cursor, scope_id: int, active_tags: dict, targ
     _, last_day = calendar.monthrange(start_date.year, start_date.month)
     end_date = start_date + timedelta(days=last_day)
 
-    # Get daily data from DB
-    cost_dict = get_aggregated_daily_costs(cursor, scope_id, active_tags, start_date=start_date, end_date=end_date)
-
+    # Get history - 35 days before the month + the target month
+    history_start = start_date - timedelta(days=35)
+    cost_dict = get_aggregated_daily_costs(cursor, scope_id, active_tags, start_date=history_start, end_date=end_date)
     _, num_days = calendar.monthrange(base_date.year, base_date.month)
     
-    # Get the real latest date we have data for in this month globally
+    # Get the real latest date available in this month globally
     max_date_row = costs_crud.get_max_date(cursor, start_date, end_date)
     if max_date_row and max_date_row[0]:
-        cutoff_day = max_date_row[0].day
+        cutoff_date_obj = max_date_row[0]
+        if isinstance(cutoff_date_obj, datetime):
+            cutoff_date_obj = cutoff_date_obj.date()
+        #TODO weird behaviour when month wraps.
+        safe_max_date = date.today() - timedelta(days=3) 
+        if cutoff_date_obj > safe_max_date:
+            cutoff_date_obj = safe_max_date
+            
+        cutoff_day = cutoff_date_obj.day
     else:
+        cutoff_date_obj =date.today() - timedelta(days=3)
         cutoff_day = 0
 
+    # Transform to DataFrame for the model,
+    # fill gaps for all days from history_start to cutoff_date.
+    df_data = []
+    first_nonzero_date = history_start
+    # Find the actual boundaries of present data in cost_dict
+    if cost_dict:
+        sorted_dates = sorted(cost_dict.keys())
+        for d_str in sorted_dates:
+            if cost_dict[d_str] > 0.0:
+                first_nonzero_date = date.fromisoformat(d_str)
+                break
+                
+    curr_date = max(history_start, first_nonzero_date)
+
+    print(f"Cutoff date object: {cutoff_date_obj}")
+        
+    while curr_date <= cutoff_date_obj:
+        d_str = curr_date.isoformat()
+        df_data.append({"ds": curr_date,
+                        "y": cost_dict.get(d_str, 0.0), 
+                        "unique_id": "cost"})
+        curr_date += timedelta(days=1)
+        
+    df = pd.DataFrame(df_data)
+    if not df.empty:
+        df['ds'] = pd.to_datetime(df['ds'])
+
+    # Get StatsForecast and predictions
+    sf = StatsForecast(
+        models=[AutoETS(season_length=7)],
+        freq='D'
+    )
+    
+    # Predict enough days to reach the end_date of the target month
+    days_to_predict = (end_date - cutoff_date_obj).days if cost_dict else num_days
+    
+    try:
+        if df.empty:
+            raise ValueError("No data to train on")
+            
+        # Always predict at least 1 day to force sf.forecast to cache fitted values
+        h_val = max(1, days_to_predict)
+        forecast_df = sf.forecast(df=df, h=h_val, level=[95], fitted=True)
+        fitted_df = sf.forecast_fitted_values()
+        
+        # If prediction wasn't needed, drop the future forecast
+        if days_to_predict <= 0:
+            forecast_df = pd.DataFrame()
+    except Exception as e:
+        # Fallback in case of StatsForecast error (tiny datasets < 14 days)
+        forecast_df = pd.DataFrame()
+        fitted_df = pd.DataFrame()
+        
+        # Manually create flat future forecasts as fallback
+        future_forecasts = {}
+        if not df.empty and days_to_predict > 0:
+            run_rate = df['y'].tail(7).mean()
+            fallback_date = cutoff_date_obj + timedelta(days=1)
+            for _ in range(days_to_predict):
+                future_forecasts[fallback_date.strftime("%Y-%m-%d")] = run_rate
+                fallback_date += timedelta(days=1)
+
+    # Create dict mapping for upper bound of prediction interval
+    anomaly_thresholds = {}
+    if not fitted_df.empty:
+        hi_cols = [c for c in fitted_df.columns if c.endswith('-hi-95')]
+        if hi_cols:
+            hi_col = hi_cols[0]
+            for _, row in fitted_df.iterrows():
+                anomaly_thresholds[row['ds'].strftime("%Y-%m-%d")] = row[hi_col]
+
+    # Map forecast values { ds_str: forecast_y }
+    # Only map from forecast_df if no fallback was used
+    if 'future_forecasts' not in locals() or not future_forecasts:
+        future_forecasts = {}
+        if not forecast_df.empty:
+            pred_cols = [c for c in forecast_df.columns if 'AutoETS' in c and not '-' in c]
+            if pred_cols:
+                pred_col = pred_cols[0]
+                for _, row in forecast_df.iterrows():
+                    future_forecasts[row['ds'].strftime("%Y-%m-%d")] = row[pred_col]
+            
+    # Build standard output
     labels = []
     actual_daily = []
     actual_cumulative = []
     forecast_cumulative = []
+    anomalies = []
 
     cumulative_sum = 0
-    last_7_days_costs = []
+    actual_cumulative_sum = 0
 
-    # Computation with 7 day moving average
     for day in range(1, num_days + 1):
         current_date = date(base_date.year, base_date.month, day)
         date_str = current_date.isoformat()
@@ -145,27 +240,31 @@ def calculate_chargeback_forecast(cursor, scope_id: int, active_tags: dict, targ
         # Use existing data
         if day <= cutoff_day:
             daily_cost = cost_dict.get(date_str, 0.0)
+            actual_cumulative_sum += daily_cost
             cumulative_sum += daily_cost
             
             actual_daily.append(round(daily_cost, 2))
-            actual_cumulative.append(round(cumulative_sum, 2))
+            actual_cumulative.append(round(actual_cumulative_sum, 2))
             forecast_cumulative.append(None) 
             
-            last_7_days_costs.append(daily_cost)
-            if len(last_7_days_costs) > 7:
-                last_7_days_costs.pop(0)
+            # Anomaly detection: actual > fitted upper band + min tolerance
+            thresh = anomaly_thresholds.get(date_str, float('inf'))
+            is_anomaly = daily_cost > thresh and daily_cost > 10.0 # Ignore small anomalies
+            anomalies.append(is_anomaly)
                 
         else:
-            # Forecast from the previous
+            # Forecast from the ML model
             if cutoff_day > 0 and len(actual_cumulative) == cutoff_day and forecast_cumulative[-1] is None:
                 forecast_cumulative[cutoff_day - 1] = round(cumulative_sum, 2)
 
-            run_rate = sum(last_7_days_costs) / len(last_7_days_costs) if last_7_days_costs else 0
-            cumulative_sum += run_rate
+            pred_val = max(0.0, future_forecasts.get(date_str, 0.0))
+            cumulative_sum += pred_val
             
             actual_daily.append(None)
             actual_cumulative.append(None)
             forecast_cumulative.append(round(cumulative_sum, 2))
+            anomalies.append(False)
+            
     costs_crud.save_forecast_snapshot(cursor, scope_id, active_tags, base_date, round(cumulative_sum, 2))
     cursor.connection.commit()
     budget_amount = costs_crud.get_budget(cursor, scope_id, active_tags, base_date)
@@ -177,6 +276,7 @@ def calculate_chargeback_forecast(cursor, scope_id: int, active_tags: dict, targ
         "actual_daily": actual_daily,
         "actual_cumulative": actual_cumulative,
         "forecast_cumulative": forecast_cumulative,
+        "anomalies": anomalies,
         "budget": budget_amount
     }
 
