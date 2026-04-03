@@ -90,10 +90,25 @@ SCHEMA_DEFINITIONS = {
         TargetMonth DATE,
         ForecastDate DATE,
         ProjectedAmount DECIMAL(18, 4),
+        DailyForecasts JSONB,
         CalculatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
         UNIQUE(ScopeId, Tags, TargetMonth, ForecastDate)
     );""",
+    "costanomalies":"""
+    CREATE TABLE CostAnomalies (
+        Id SERIAL PRIMARY KEY,
+        ScopeId INTEGER REFERENCES Entities(Id),
+        Tags JSONB,
+        AnomalyDate DATE,
+        ActualCost DECIMAL(18, 4),
+        PredictedCost DECIMAL(18, 4),
+        UpperThreshold DECIMAL(18, 4),
+        Delta DECIMAL(18, 4),
+        DetectedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(ScopeId, Tags, AnomalyDate)
+    );
+    """,
     "allocationrules":"""
     CREATE TABLE AllocationRules (
         Id SERIAL PRIMARY KEY,
