@@ -2,6 +2,7 @@ import json
 import hashlib
 from psycopg2.extras import execute_values
 from db_loader.base_processor import BaseProcessor, register_processor
+import logging
 
 log = logging.getLogger('metrics_processor')
 
