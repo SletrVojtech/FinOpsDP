@@ -66,7 +66,7 @@ def api_get_chargeback_data(
     
     active_tags = extract_active_tags(request)
     
-    data = cost_service.calculate_chargeback_forecast(cursor, scope_id, active_tags, target_month)
+    data = cost_service.get_chargeback_dashboard_data(cursor, scope_id, active_tags, target_month)
     
     return data
 

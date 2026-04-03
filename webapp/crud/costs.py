@@ -122,20 +122,46 @@ def set_budget(cursor, scope_id: int, tags_filter: dict, target_month: date, amo
             VALUES (%s, %s::jsonb, %s, %s);
         """, (scope_id, tags_json, amount, target_month))
 
-def save_forecast_snapshot(cursor, scope_id: int, tags_filter: dict, target_month: date, amount: float):
-    """Save the current forecast snapshot to history"""
+def save_forecast_snapshot(cursor, scope_id: int, tags_filter: dict, target_month: date, amount: float, daily_forecasts: dict = None):
+    """Save the current forecast snapshot (and its daily curve) to history"""
     tags_json = json.dumps(tags_filter) if tags_filter else '{}'
+    daily_json = json.dumps(daily_forecasts) if daily_forecasts else '{}'
     scope_id = scope_id if scope_id is not None else 0
     today = date.today()
 
     cursor.execute("""
-        INSERT INTO ForecastHistory (ScopeId, Tags, TargetMonth, ForecastDate, ProjectedAmount, CalculatedAt)
-        VALUES (%s, %s::jsonb, %s, %s, %s, CURRENT_TIMESTAMP)
+        INSERT INTO ForecastHistory (ScopeId, Tags, TargetMonth, ForecastDate, ProjectedAmount, DailyForecasts, CalculatedAt)
+        VALUES (%s, %s::jsonb, %s, %s, %s, %s::jsonb, CURRENT_TIMESTAMP)
         ON CONFLICT (ScopeId, Tags, TargetMonth, ForecastDate) 
         DO UPDATE SET 
             ProjectedAmount = EXCLUDED.ProjectedAmount,
+            DailyForecasts = EXCLUDED.DailyForecasts,
             CalculatedAt = CURRENT_TIMESTAMP;
-    """, (scope_id, tags_json, target_month, today, amount))
+    """, (scope_id, tags_json, target_month, today, amount, daily_json))
+
+def get_latest_forecast(cursor, scope_id: int, tags_filter: dict, target_month: date):
+    """Returns the most recent calculated forecast under 24 hours old."""
+    tags_json = json.dumps(tags_filter) if tags_filter else '{}'
+    scope_id = scope_id if scope_id is not None else 0
+    
+    cursor.execute("""
+        SELECT ProjectedAmount, DailyForecasts 
+        FROM ForecastHistory 
+        WHERE ScopeId = %s 
+          AND Tags::jsonb = %s::jsonb 
+          AND TargetMonth = %s
+          AND CalculatedAt >= NOW() - INTERVAL '24 HOURS'
+        ORDER BY CalculatedAt DESC
+        LIMIT 1;
+    """, (scope_id, tags_json, target_month))
+    
+    row = cursor.fetchone()
+    if row:
+        return {
+            "projected_amount": float(row[0]),
+            "daily_forecasts": row[1] if isinstance(row[1], dict) else {}
+        }
+    return None
 
 def get_namespaces_for_tags(cursor, active_tags: dict):
     query_ns = "SELECT Id, ParentId, ResourceName FROM Entities WHERE ResourceType = 'kubernetes_namespace'"
@@ -155,3 +181,31 @@ def get_max_date(cursor, start_date: date, end_date: date):
         WHERE ChargePeriodStart >= %s AND ChargePeriodStart < %s
     """, (start_date, end_date))
     return cursor.fetchone()
+
+def get_active_budgets_scopes(cursor, target_month: date):
+    """Returns unique (scope_id, tags) combinations that have active budgets."""
+    query = """
+        SELECT DISTINCT ScopeId, Tags 
+        FROM Budgets 
+        WHERE PeriodMonth <= %s
+    """
+    cursor.execute(query, (target_month,))
+    return [{"scope_id": r[0], "tags": r[1]} for r in cursor.fetchall()]
+
+def save_anomalies(cursor, scope_id: int, tags_filter: dict, anomalies_data: list):
+    """Saves detected anomalies to CostAnomalies table."""
+    tags_json = json.dumps(tags_filter) if tags_filter else '{}'
+    scope_id = scope_id if scope_id is not None else 0
+    
+    for anomaly in anomalies_data:
+        cursor.execute("""
+            INSERT INTO CostAnomalies (ScopeId, Tags, AnomalyDate, ActualCost, PredictedCost, UpperThreshold, Delta, DetectedAt)
+            VALUES (%s, %s::jsonb, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
+            ON CONFLICT (ScopeId, Tags, AnomalyDate) 
+            DO UPDATE SET 
+                ActualCost = EXCLUDED.ActualCost,
+                PredictedCost = EXCLUDED.PredictedCost,
+                UpperThreshold = EXCLUDED.UpperThreshold,
+                Delta = EXCLUDED.Delta,
+                DetectedAt = CURRENT_TIMESTAMP;
+        """, (scope_id, tags_json, anomaly["date"], anomaly["actual"], anomaly["predicted"], anomaly["threshold"], anomaly["delta"]))

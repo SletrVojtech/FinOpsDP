@@ -104,6 +104,8 @@ def get_aggregated_daily_costs(cursor, scope_id: int, active_tags: dict,
     
 
 def _prepare_dates_and_cutoff(cursor, target_month: str = None):
+    """Prepare date interval and actual data cutoff for the given month"""
+    SAFE_DAYS_TO_SUBTRACT = 3
     if target_month:
         year, month = map(int, target_month.split('-'))
         base_date = date(year, month, 1)
@@ -115,22 +117,29 @@ def _prepare_dates_and_cutoff(cursor, target_month: str = None):
     end_date = start_date + timedelta(days=last_day)
     num_days = last_day
     
+    # Get the latest date with actual data
     max_date_row = costs_crud.get_max_date(cursor, start_date, end_date)
     if max_date_row and max_date_row[0]:
         cutoff_date_obj = max_date_row[0]
         if isinstance(cutoff_date_obj, datetime):
             cutoff_date_obj = cutoff_date_obj.date()
-        safe_max_date = date.today() - timedelta(days=3)
+        # Skip a few latest days with incomplete data
+        safe_max_date = date.today() - timedelta(days=SAFE_DAYS_TO_SUBTRACT)
         if cutoff_date_obj > safe_max_date:
             cutoff_date_obj = safe_max_date
-        cutoff_day = cutoff_date_obj.day
+        # If the cutoff date is not in the current month, set cutoff_day to 0
+        if cutoff_date_obj.month != base_date.month:
+            cutoff_day = 0
+        else:
+            cutoff_day = cutoff_date_obj.day
     else:
-        cutoff_date_obj = date.today() - timedelta(days=3)
+        cutoff_date_obj = date.today() - timedelta(days=SAFE_DAYS_TO_SUBTRACT)
         cutoff_day = 0
         
     return base_date, start_date, end_date, num_days, cutoff_date_obj, cutoff_day
 
 def _build_response_payload(base_date, num_days, cutoff_day, cost_dict, future_forecasts, budget_amount, anomaly_thresholds=None, projected_total=None):
+    """Build the response payload for the given month"""
     if anomaly_thresholds is None:
         anomaly_thresholds = {}
 
@@ -141,7 +150,7 @@ def _build_response_payload(base_date, num_days, cutoff_day, cost_dict, future_f
         current_date = date(base_date.year, base_date.month, day)
         date_str = current_date.isoformat()
         labels.append(date_str)
-        
+        # If the day is within the actual data range, use actual data
         if day <= cutoff_day:
             daily_cost = cost_dict.get(date_str, 0.0)
             actual_cumulative_sum += daily_cost
@@ -153,7 +162,9 @@ def _build_response_payload(base_date, num_days, cutoff_day, cost_dict, future_f
             
             thresh = anomaly_thresholds.get(date_str, float('inf'))
             anomalies.append(daily_cost > thresh and daily_cost > 10.0)
+        # If the day is beyond the actual data range, use forecast data
         else:
+            # If the forecast_cumulative is empty, fill it with the actual cumulative sum
             if cutoff_day > 0 and len(actual_cumulative) == cutoff_day and forecast_cumulative[-1] is None:
                 forecast_cumulative[cutoff_day - 1] = round(cumulative_sum, 2)
 
@@ -164,7 +175,7 @@ def _build_response_payload(base_date, num_days, cutoff_day, cost_dict, future_f
             actual_cumulative.append(None)
             forecast_cumulative.append(round(cumulative_sum, 2))
             anomalies.append(False)
-            
+       
     return {
         "month": f"{base_date.year}-{base_date.month:02d}",
         "projected_total": projected_total if projected_total is not None else round(cumulative_sum, 2),
@@ -183,8 +194,8 @@ def get_chargeback_dashboard_data(cursor, scope_id: int, active_tags: dict, targ
     """
     base_date, start_date, end_date, num_days, cutoff_date_obj, cutoff_day = _prepare_dates_and_cutoff(cursor, target_month)
     
-    #latest = costs_crud.get_latest_forecast(cursor, scope_id, active_tags, base_date)
-    latest = None
+    latest = costs_crud.get_latest_forecast(cursor, scope_id, active_tags, base_date)
+    print(latest)
     budget_amount = costs_crud.get_budget(cursor, scope_id, active_tags, base_date)
     
     if not latest or not latest.get('daily_forecasts'):
