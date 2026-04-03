@@ -1,15 +1,14 @@
 import logging
 from psycopg2.extras import execute_values
+from db_loader.base_processor import BaseProcessor, register_processor
 
-log = logging.getLogger('catalog_proccesor')
+log = logging.getLogger('catalog_processor')
 
-class CatalogProcessor:
+@register_processor("catalog_downloader")
+class CatalogProcessor(BaseProcessor):
     """
     Class to process cloud hardware specs and pricing catalogs and insert them into DB.
     """
-    def __init__(self, db_conn):
-        self.db = db_conn
-        self.cursor = self.db.cursor()
 
     def process(self, envelope):
         payload_data = envelope.payload

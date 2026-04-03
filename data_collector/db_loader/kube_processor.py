@@ -4,18 +4,17 @@ from psycopg2.extras import execute_values
 from pydantic import ValidationError
 from kube_collector.message import KubeMetricsPayload
 from datetime import datetime
+from db_loader.base_processor import BaseProcessor, register_processor
 
 
-log = logging.getLogger('KubeProcessor')
+log = logging.getLogger('kube_processor')
 
-class KubeProcessor:
+@register_processor("kube_collector")
+class KubeProcessor(BaseProcessor):
     """
     Parse CPU and Memory metrics from Prometheus into DB.
     Creates hierarchy of entities on top of cloud providers.
     """
-    def __init__(self, db_conn):
-        self.db = db_conn
-        self.cursor = self.db.cursor()
 
     def process(self, envelope):
         payload_dict = envelope.payload
@@ -61,22 +60,14 @@ class KubeProcessor:
         parent_id = 0
         
         if provider == "azure":
-            parts = resource_id.split("/")
-            #TODO make more robust
-            if len(parts) > 4:
-                sub_id = parts[2]
-                rg_name = parts[4]
-                # Create subscription and resource group entity
-                parent_id = self._upsert_entity(f"/subscriptions/{sub_id}",provider,sub_id, "subscription", 0)
-                parent_id = self._upsert_entity(f"/subscriptions/{sub_id}/resourcegroups/{rg_name}",provider,rg_name, "resource_group", parent_id)
+            parent_id = self.resolve_azure_hierarchy(resource_id)
                 
         elif provider == "aws":
-            # AWS hierarchy is account-id only
-            parent_id = self._upsert_entity(acc_id,provider,acc_id, "aws_account", 0)
+            parent_id = self.resolve_aws_hierarchy(acc_id)
 
 
         # UPSERT  k8s cluster
-        cluster_db_id = self._upsert_entity(
+        cluster_db_id = self.upsert_basic_entity(
             ext_id=cluster_id,
             provider=provider, 
             res_name=cluster_name, 
@@ -103,19 +94,6 @@ class KubeProcessor:
             cluster_db_id, 
             tags_json
         ))
-        return self.cursor.fetchone()[0]
-
-    def _upsert_entity(self, ext_id, provider, res_name, res_type, parent_id):
-        """Helper method for updating entities"""
-        query = """
-            INSERT INTO Entities (ExternalId, ProviderName, ResourceName, ResourceType, ParentId)
-            VALUES (%s, %s, %s, %s, %s)
-            ON CONFLICT (ExternalId) DO UPDATE SET ParentId = EXCLUDED.ParentId, ResourceType = EXCLUDED.ResourceType
-            RETURNING Id;
-        """
-        if not res_name or res_name == "None":
-            res_name = ext_id
-        self.cursor.execute(query, (ext_id.lower(), provider.lower(), res_name.lower(), res_type.lower(), parent_id))
         return self.cursor.fetchone()[0]
 
     def _insert_metrics(self, values: list):

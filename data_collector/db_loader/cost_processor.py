@@ -3,15 +3,13 @@ import logging
 from psycopg2.extras import execute_values
 from pydantic import ValidationError
 from cost_collector.message import CostBatchPayload
+from db_loader.base_processor import BaseProcessor, register_processor
 
 
-log = logging.getLogger('CostsProcessor')
+log = logging.getLogger('cost_processor')
 
-class CostsProcessor:
-
-    def __init__(self, db_conn):
-        self.db = db_conn
-        self.cursor = self.db.cursor()
+@register_processor("cost_export")
+class CostsProcessor(BaseProcessor):
 
     def process(self, envelope):
         body = envelope.payload
@@ -62,58 +60,21 @@ class CostsProcessor:
         account_name = record.account_name
         
         if billing_id not in cache:
-            cache[billing_id] = self._upsert_single_parent(billing_id, provider, billing_name, "billing_account", 0)
-        
-
+            cache[billing_id] = self.upsert_basic_entity(billing_id, provider, billing_name, "billing_account", 0, cache)
 
         if provider == "aws":
-            acc_id = record.account_id
-            if acc_id not in cache:
-                cache[acc_id] = self._upsert_single_parent(acc_id, provider, account_name, "aws_account", cache[billing_id])
-            return cache[acc_id]
+            return self.resolve_aws_hierarchy(record.account_id, account_name=account_name, parent_id=cache[billing_id], cache=cache)
 
         elif provider == "azure":
-            parts = res_id.split("/")
-            # Parse Subscription and ResourceGroup
-            if len(parts) > 4 and parts[1].lower() == 'subscriptions':
-                sub_id = parts[2]
-                sub_ext_id = f"/subscriptions/{sub_id}"
-                
-                # Get Subscription
-                if sub_ext_id not in cache:
-                    cache[sub_ext_id] = self._upsert_single_parent(sub_ext_id, provider, account_name, "subscription", cache[billing_id])
-                sub_db_id = cache[sub_ext_id]
-
-                # Get ResourceGroup
-                if parts[3].lower() == 'resourcegroups':
-                    rg_name = parts[4]
-                    rg_ext_id = f"/subscriptions/{sub_id}/resourcegroups/{rg_name}"
-                    if rg_ext_id not in cache:
-                        cache[rg_ext_id] = self._upsert_single_parent(rg_ext_id, provider, rg_name, "resource_group", sub_db_id)
-                    return cache[rg_ext_id]
-                
-                return sub_db_id
-
-            # Fallback 
-            fallback_sub_id = record.account_id
-            fallback_ext = fallback_sub_id if fallback_sub_id.startswith('/') else f"/subscriptions/{fallback_sub_id}"
-            if fallback_ext not in cache:
-                cache[fallback_ext] = self._upsert_single_parent(fallback_ext, provider, record.account_name, "subscription", cache[billing_id])
-            return cache[fallback_ext]
+            return self.resolve_azure_hierarchy(
+                resource_id=res_id, 
+                parent_id=cache[billing_id], 
+                cache=cache, 
+                fallback_sub_id=record.account_id, 
+                fallback_sub_name=account_name
+            )
 
         return None
-
-    def _upsert_single_parent(self, ext_id, provider, name, res_type, parent_id):
-        query = """
-            INSERT INTO Entities (ExternalId, ProviderName, ResourceName, ResourceType, ParentId)
-            VALUES (%s, %s, %s, %s, %s)
-            ON CONFLICT (ExternalId) DO UPDATE SET ParentId = EXCLUDED.ParentId
-            RETURNING Id;
-        """
-        if not name or name== "None":
-            name = ext_id
-        self.cursor.execute(query, (ext_id.lower(), provider.lower(), name.lower(), res_type.lower(), parent_id))
-        return self.cursor.fetchone()[0]
 
     def _resolve_entities_bulk(self, records) -> dict:
         """

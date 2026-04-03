@@ -1,16 +1,10 @@
 import logging
-from psycopg2.extras import execute_values
 from rabbitmq.message import IngestionMessage
-from db_loader.metrics_processor import MetricsProcessor
-from db_loader.cost_processor import CostsProcessor
-from db_loader.kube_processor import KubeProcessor
-from db_loader.krr_loader import KRRProcessor
-from db_loader.catalog_proccesor import CatalogProcessor
+from db_loader.base_processor import ProcessorFactory
 
-
-
-
-log = logging.getLogger('DB_loader')
+# Dynamically load all processors to trigger their @register_processor decorators
+ProcessorFactory.load_available()
+log = logging.getLogger('db_loader')
 
 class DBLoader:
     def __init__(self, db_conn, mq_channel):
@@ -33,21 +27,8 @@ class DBLoader:
 
             envelope = IngestionMessage.model_validate_json(body)
             
-            # Switch upon source module
-            if envelope.source_module == "custodian":
-                processor = MetricsProcessor(self.db)
-                processor.process(envelope)
-            elif envelope.source_module == "cost_export":
-                processor = CostsProcessor(self.db)
-                processor.process(envelope)
-            elif envelope.source_module == "kube_collector":
-                processor = KubeProcessor(self.db)
-                processor.process(envelope)
-            elif envelope.source_module == "krr_collector":
-                processor = KRRProcessor(self.db)
-                processor.process(envelope)
-            elif envelope.source_module == "catalog_downloader":
-                processor = CatalogProcessor(self.db)
+            processor = ProcessorFactory.get_processor(envelope.source_module, self.db)
+            if processor:
                 processor.process(envelope)
             else:
                 log.warning(f"Unsupported module: {envelope.source_module}")

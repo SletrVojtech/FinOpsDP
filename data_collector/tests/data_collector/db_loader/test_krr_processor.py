@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import MagicMock, patch
-from db_loader.krr_loader import KRRProcessor
+from db_loader.krr_processor import KRRProcessor
 from datetime import datetime, timezone
 
 @pytest.fixture
@@ -44,10 +44,10 @@ def test_krr_processor_uses_namespace_cache(mock_db):
     processor = KRRProcessor(mock_db)
 
     # Act
-    with patch('db_loader.krr_loader.KRRBatchPayload.model_validate') as mock_validate:
+    with patch('db_loader.krr_processor.KRRBatchPayload.model_validate') as mock_validate:
         mock_validate.return_value.recommendations = [rec1, rec2]
         
-        with patch('db_loader.krr_loader.execute_values') as mock_exec:
+        with patch('db_loader.krr_processor.execute_values') as mock_exec:
             processor.process(envelope)
 
     # Assert

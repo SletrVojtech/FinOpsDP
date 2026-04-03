@@ -42,9 +42,9 @@ def test_metrics_processor_aws_pipeline(mock_db):
     assert cursor.execute.call_count == 2
     
     # Check the account entity
-    first_call_args = cursor.execute.call_args_list[0][0][1] # Tuple parametrů dotazu
+    first_call_args = cursor.execute.call_args_list[0][0][1] # Tuple of parameters
     assert first_call_args[0] == "111122223333" # ExternalId (Account ID)
-    assert first_call_args[2] == "aws_account"  # ResourceType
+    assert first_call_args[3] == "aws_account"  # ResourceType
     
     # Check the instance entity
     second_call_args = cursor.execute.call_args_list[1][0][1]

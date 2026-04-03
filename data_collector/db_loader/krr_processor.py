@@ -4,17 +4,16 @@ from pydantic import ValidationError
 from datetime import datetime, timezone
 
 from krr_collector.message import KRRBatchPayload
+from db_loader.base_processor import BaseProcessor, register_processor
 
-log = logging.getLogger('KRRProcessor')
+log = logging.getLogger('krr_processor')
 
-class KRRProcessor:
+@register_processor("krr_collector")
+class KRRProcessor(BaseProcessor):
     """
     Parse KRR Recommendations from RabbitMQ into DB.
     Links recommendations to the Namespace entity.
     """
-    def __init__(self, db_conn):
-        self.db = db_conn
-        self.cursor = self.db.cursor()
 
     def process(self, envelope):
         payload_dict = envelope.payload
@@ -71,18 +70,13 @@ class KRRProcessor:
         parent_id = 0
         
         if provider == "azure":
-            parts = cluster_id.split("/")
-            if len(parts) > 4:
-                sub_id = parts[2]
-                rg_name = parts[4]
-                parent_id = self._upsert_entity(f"/subscriptions/{sub_id}", provider, sub_id, "subscription", 0)
-                parent_id = self._upsert_entity(f"/subscriptions/{sub_id}/resourcegroups/{rg_name}", provider, rg_name, "resource_group", parent_id)
+            parent_id = self.resolve_azure_hierarchy(cluster_id)
                 
         elif provider == "aws":
-            parent_id = self._upsert_entity(acc_id, provider, acc_id, "aws_account", 0)
+            parent_id = self.resolve_aws_hierarchy(acc_id)
 
         # UPSERT k8s cluster
-        cluster_db_id = self._upsert_entity(
+        cluster_db_id = self.upsert_basic_entity(
             ext_id=cluster_id,
             provider=provider, 
             res_name=cluster_name, 
@@ -91,34 +85,13 @@ class KRRProcessor:
         )
 
         # UPSERT Namespace
-        query = """
-            INSERT INTO Entities (ExternalId, ProviderName, ResourceName, ResourceType, ParentId)
-            VALUES (%s, %s, %s, %s, %s)
-            ON CONFLICT (ExternalId) DO UPDATE 
-            SET ParentId = EXCLUDED.ParentId
-            RETURNING Id;
-        """
-        self.cursor.execute(query, (
-            namespace_urn.lower(), 
-            provider.lower(), 
-            item.namespace.lower(), 
-            "kubernetes_namespace", 
-            cluster_db_id
-        ))
-        return self.cursor.fetchone()[0]
-
-    def _upsert_entity(self, ext_id, provider, res_name, res_type, parent_id):
-        """Helper method for updating entities"""
-        query = """
-            INSERT INTO Entities (ExternalId, ProviderName, ResourceName, ResourceType, ParentId)
-            VALUES (%s, %s, %s, %s, %s)
-            ON CONFLICT (ExternalId) DO UPDATE SET ParentId = EXCLUDED.ParentId, ResourceType = EXCLUDED.ResourceType
-            RETURNING Id;
-        """
-        if not res_name or res_name == "None":
-            res_name = ext_id
-        self.cursor.execute(query, (ext_id.lower(), provider.lower(), res_name.lower(), res_type.lower(), parent_id))
-        return self.cursor.fetchone()[0]
+        return self.upsert_basic_entity(
+            ext_id=namespace_urn,
+            provider=provider,
+            res_name=item.namespace.lower(),
+            res_type="kubernetes_namespace",
+            parent_id=cluster_db_id
+        )
 
     def _insert_recommendations(self, values: list):
         """Bulk UPSERT of latest recommendations into KubeRecommendations table"""

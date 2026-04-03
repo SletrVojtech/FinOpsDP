@@ -1,14 +1,15 @@
 import json
 import hashlib
 from psycopg2.extras import execute_values
+from db_loader.base_processor import BaseProcessor, register_processor
 
-class MetricsProcessor:
+log = logging.getLogger('metrics_processor')
+
+@register_processor("custodian")
+class MetricsProcessor(BaseProcessor):
     """
     Class to process measured metrics by Custodian and insert into DB.
     """
-    def __init__(self, db_conn):
-        self.db = db_conn
-        self.cursor = self.db.cursor()
 
     def process(self, envelope):
         payload_data = envelope.payload
@@ -39,18 +40,10 @@ class MetricsProcessor:
         parent_id = 0
         
         if provider == "azure":
-            parts = resource_id.split("/")
-            #TODO make more robust
-            if len(parts) > 4:
-                sub_id = parts[2]
-                rg_name = parts[4]
-                # Create subscription and resource group entity
-                parent_id = self._upsert_entity(f"/subscriptions/{sub_id}",sub_id, "subscription", "0", 0, provider)
-                parent_id = self._upsert_entity(f"/subscriptions/{sub_id}/resourcegroups/{rg_name}",rg_name, "resource_group", "0", parent_id, provider)
+            parent_id = self.resolve_azure_hierarchy(resource_id)
                 
         elif provider == "aws":
-            # AWS hierarchy is account-id only
-            parent_id = self._upsert_entity(account_id,account_id, "aws_account", "0", 0, provider)
+            parent_id = self.resolve_aws_hierarchy(account_id)
 
         # Create/update current resource
         return self._upsert_entity(

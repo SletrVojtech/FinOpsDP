@@ -29,13 +29,13 @@ def test_handle_message_success_custodian():
         }
     }"""
 
-    # Act - patch blocks out using the real MetricsProcessor
-    with patch('db_loader.db_loader.MetricsProcessor') as mock_metrics_processor_class:
+    # Act: patch blocks out using the real factory
+    with patch('db_loader.db_loader.ProcessorFactory.get_processor') as mock_get_processor:
         loader.handle_message(mock_ch, mock_method, None, valid_json)
 
-    # Assert: check the creation of MetricsProcessor and calling "process" once
-    mock_metrics_processor_class.assert_called_once_with(mock_db)
-    mock_metrics_processor_class.return_value.process.assert_called_once()
+    # Assert: check the creation via factory and calling "process" once
+    mock_get_processor.assert_called_once_with('custodian', mock_db)
+    mock_get_processor.return_value.process.assert_called_once()
     
     # Assert: Check if sucessfuly commited and acknowledged
     mock_db.commit.assert_called_once()

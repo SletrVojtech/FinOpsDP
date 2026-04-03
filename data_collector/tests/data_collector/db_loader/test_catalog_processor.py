@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import MagicMock, patch
-from db_loader.catalog_proccesor import CatalogProcessor
+from db_loader.catalog_processor import CatalogProcessor
 
 @pytest.fixture
 def mock_db():
@@ -29,7 +29,7 @@ def test_catalog_processor_hardware_only(mock_db):
     processor = CatalogProcessor(mock_db)
 
     # Act
-    with patch('db_loader.catalog_proccesor.execute_values') as mock_exec:
+    with patch('db_loader.catalog_processor.execute_values') as mock_exec:
         processor.process(envelope)
 
     # Assert
@@ -62,7 +62,7 @@ def test_catalog_processor_pricing_only(mock_db):
     processor = CatalogProcessor(mock_db)
 
     # Act
-    with patch('db_loader.catalog_proccesor.execute_values') as mock_exec:
+    with patch('db_loader.catalog_processor.execute_values') as mock_exec:
         processor.process(envelope)
 
     # Assert
@@ -88,7 +88,7 @@ def test_catalog_processor_both_records(mock_db):
     processor = CatalogProcessor(mock_db)
 
     # Act
-    with patch('db_loader.catalog_proccesor.execute_values') as mock_exec:
+    with patch('db_loader.catalog_processor.execute_values') as mock_exec:
         processor.process(envelope)
 
     # Assert
