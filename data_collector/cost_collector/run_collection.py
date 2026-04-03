@@ -2,7 +2,6 @@ import yaml
 import sys
 import logging
 import os
-import shutil
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from c7n_org.cli import init, accounts_iterator
 from cost_collector.downloaders import run_aws_worker_process, run_azure_worker_process
@@ -100,8 +99,8 @@ def run_cost_downloads(output_dir="/tmp/cost_exports"):
                 if os.path.isdir(folder_path):
                     # include csv and csv.gz
                     file_pattern = os.path.join(folder_path, "*.csv*")
-                    loader.process_and_publish(file_pattern, days_back=20)
-                    shutil.rmtree(folder_path)
+                    loader.process_and_publish(file_pattern, days_back=30)
+                    #shutil.rmtree(folder_path)
         log.info("Finished loading files into RabbitMQ.")
 
 

@@ -28,8 +28,8 @@ def test_process_and_publish_batches(mock_duckdb_connect):
     # Act: Try batch_size=2 -> 2 published messages
     loader.process_and_publish(export_folder_pattern="dummy_path/*.csv", batch_size=2)
 
-    # Assert - SQL query called once
-    mock_con.execute.assert_called_once()
+    # Assert - SQL queries called twice (normal + multiday)
+    assert mock_con.execute.call_count == 2
     
     # Check the SQL parameters
     sql_query = mock_con.execute.call_args[0][0]
@@ -37,3 +37,50 @@ def test_process_and_publish_batches(mock_duckdb_connect):
     
     # 2 RMQ publish calls
     assert mock_rmq.publish.call_count == 2
+
+def test_distribute_multiday_charges():
+    # Arrange
+    loader = CostDataLoader(rmq_client=MagicMock())
+    
+    # 3-day charge spanning from March 1 to March 4
+    start_dt = datetime(2026, 3, 1, 0, 0, 0)
+    end_dt = datetime(2026, 3, 4, 0, 0, 0)
+    
+    mock_multiday_dicts = [{
+        'ProviderName': 'AWS', 
+        'BillingAccountId': 'ba',
+        'BillingAccountName': 'ban',
+        'SubAccountId': '10', 
+        'SubAccountName': 'san',
+        'RegionId': 'eu-west-1',
+        'resource_id': 'tax-res',
+        'ServiceCategory': 'Tax',
+        'ServiceName': 'AWS Tax',
+        'SkuPriceId': 'skx',
+        'BillingCurrency': 'USD',
+        'ResourceName': 'n',
+        'ResourceType': 't',
+        'Tags': '{}',
+        'charge_period_start': start_dt, 
+        'charge_period_end': end_dt,
+        'billed_cost': 30.0,
+    }]
+    
+    # The pipeline started fetching data from March 2nd (March 1st is technically outside the main window)
+    cutoff_date = "2026-03-02 00:00:00"
+
+    # Act
+    records = loader._distribute_multiday_charges(mock_multiday_dicts, cutoff_date)
+
+    # Assert
+    # 30 / 3 days = 10.0 daily cost
+    # Since March 1st is < cutoff_date, we only retain the payloads for March 2nd & 3rd.
+    assert len(records) == 2
+    
+    payload_1 = records[0]
+    assert payload_1.charge_period_start == datetime(2026, 3, 2, 0, 0, 0) 
+    assert payload_1.billed_cost == 10.0
+    
+    payload_2 = records[1]
+    assert payload_2.charge_period_start == datetime(2026, 3, 3, 0, 0, 0) 
+    assert payload_2.billed_cost == 10.0
