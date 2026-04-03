@@ -103,12 +103,7 @@ def get_aggregated_daily_costs(cursor, scope_id: int, active_tags: dict,
     
     
 
-def calculate_chargeback_forecast(cursor, scope_id: int, active_tags: dict, target_month: str = None) -> dict:
-    """
-    Calculates monthly spend and creates an ML forecast with StatsForecast.
-    Includes on-the-fly anomaly detection based on prediction intervals.
-    """
-    # Get month
+def _prepare_dates_and_cutoff(cursor, target_month: str = None):
     if target_month:
         year, month = map(int, target_month.split('-'))
         base_date = date(year, month, 1)
@@ -118,27 +113,107 @@ def calculate_chargeback_forecast(cursor, scope_id: int, active_tags: dict, targ
     start_date = base_date.replace(day=1)
     _, last_day = calendar.monthrange(start_date.year, start_date.month)
     end_date = start_date + timedelta(days=last_day)
-
-    # Get history - 35 days before the month + the target month
-    history_start = start_date - timedelta(days=35)
-    cost_dict = get_aggregated_daily_costs(cursor, scope_id, active_tags, start_date=history_start, end_date=end_date)
-    _, num_days = calendar.monthrange(base_date.year, base_date.month)
+    num_days = last_day
     
-    # Get the real latest date available in this month globally
     max_date_row = costs_crud.get_max_date(cursor, start_date, end_date)
     if max_date_row and max_date_row[0]:
         cutoff_date_obj = max_date_row[0]
         if isinstance(cutoff_date_obj, datetime):
             cutoff_date_obj = cutoff_date_obj.date()
-        #TODO weird behaviour when month wraps.
-        safe_max_date = date.today() - timedelta(days=3) 
+        safe_max_date = date.today() - timedelta(days=3)
         if cutoff_date_obj > safe_max_date:
             cutoff_date_obj = safe_max_date
-            
         cutoff_day = cutoff_date_obj.day
     else:
-        cutoff_date_obj =date.today() - timedelta(days=3)
+        cutoff_date_obj = date.today() - timedelta(days=3)
         cutoff_day = 0
+        
+    return base_date, start_date, end_date, num_days, cutoff_date_obj, cutoff_day
+
+def _build_response_payload(base_date, num_days, cutoff_day, cost_dict, future_forecasts, budget_amount, anomaly_thresholds=None, projected_total=None):
+    if anomaly_thresholds is None:
+        anomaly_thresholds = {}
+
+    labels, actual_daily, actual_cumulative, forecast_cumulative, anomalies = [], [], [], [], []
+    cumulative_sum, actual_cumulative_sum = 0, 0
+
+    for day in range(1, num_days + 1):
+        current_date = date(base_date.year, base_date.month, day)
+        date_str = current_date.isoformat()
+        labels.append(date_str)
+        
+        if day <= cutoff_day:
+            daily_cost = cost_dict.get(date_str, 0.0)
+            actual_cumulative_sum += daily_cost
+            cumulative_sum += daily_cost
+            
+            actual_daily.append(round(daily_cost, 2))
+            actual_cumulative.append(round(actual_cumulative_sum, 2))
+            forecast_cumulative.append(None) 
+            
+            thresh = anomaly_thresholds.get(date_str, float('inf'))
+            anomalies.append(daily_cost > thresh and daily_cost > 10.0)
+        else:
+            if cutoff_day > 0 and len(actual_cumulative) == cutoff_day and forecast_cumulative[-1] is None:
+                forecast_cumulative[cutoff_day - 1] = round(cumulative_sum, 2)
+
+            pred_val = float(max(0.0, future_forecasts.get(date_str, 0.0)))
+            cumulative_sum += pred_val
+            
+            actual_daily.append(None)
+            actual_cumulative.append(None)
+            forecast_cumulative.append(round(cumulative_sum, 2))
+            anomalies.append(False)
+            
+    return {
+        "month": f"{base_date.year}-{base_date.month:02d}",
+        "projected_total": projected_total if projected_total is not None else round(cumulative_sum, 2),
+        "labels": labels,
+        "actual_daily": actual_daily,
+        "actual_cumulative": actual_cumulative,
+        "forecast_cumulative": forecast_cumulative,
+        "anomalies": anomalies,
+        "budget": budget_amount
+    }
+
+def get_chargeback_dashboard_data(cursor, scope_id: int, active_tags: dict, target_month: str = None) -> dict:
+    """
+    Main entry point for UI. Attempt to load pre-calculated AutoARIMA data from DB.
+    If not available (or older than 24h), fallback to fast AutoETS calculation.
+    """
+    base_date, start_date, end_date, num_days, cutoff_date_obj, cutoff_day = _prepare_dates_and_cutoff(cursor, target_month)
+    
+    #latest = costs_crud.get_latest_forecast(cursor, scope_id, active_tags, base_date)
+    latest = None
+    budget_amount = costs_crud.get_budget(cursor, scope_id, active_tags, base_date)
+    
+    if not latest or not latest.get('daily_forecasts'):
+        return calculate_chargeback_forecast(cursor, scope_id, active_tags, target_month)
+        
+    cost_dict = get_aggregated_daily_costs(cursor, scope_id, active_tags, start_date=start_date, end_date=end_date)
+    
+    return _build_response_payload(
+        base_date=base_date,
+        num_days=num_days,
+        cutoff_day=cutoff_day,
+        cost_dict=cost_dict,
+        future_forecasts=latest.get('daily_forecasts', {}),
+        budget_amount=budget_amount,
+        projected_total=latest.get("projected_amount")
+    )
+        
+
+
+def calculate_chargeback_forecast(cursor, scope_id: int, active_tags: dict, target_month: str = None) -> dict:
+    """
+    Calculates monthly spend and creates an ML forecast with StatsForecast.
+    Includes on-the-fly anomaly detection based on prediction intervals.
+    """
+    base_date, start_date, end_date, num_days, cutoff_date_obj, cutoff_day = _prepare_dates_and_cutoff(cursor, target_month)
+
+    # Get history - 35 days before the month + the target month
+    history_start = start_date - timedelta(days=35)
+    cost_dict = get_aggregated_daily_costs(cursor, scope_id, active_tags, start_date=history_start, end_date=end_date)
 
     # Transform to DataFrame for the model,
     # fill gaps for all days from history_start to cutoff_date.
@@ -222,61 +297,15 @@ def calculate_chargeback_forecast(cursor, scope_id: int, active_tags: dict, targ
                 for _, row in forecast_df.iterrows():
                     future_forecasts[row['ds'].strftime("%Y-%m-%d")] = row[pred_col]
             
-    # Build standard output
-    labels = []
-    actual_daily = []
-    actual_cumulative = []
-    forecast_cumulative = []
-    anomalies = []
-
-    cumulative_sum = 0
-    actual_cumulative_sum = 0
-
-    for day in range(1, num_days + 1):
-        current_date = date(base_date.year, base_date.month, day)
-        date_str = current_date.isoformat()
-        labels.append(date_str)
-        
-        # Use existing data
-        if day <= cutoff_day:
-            daily_cost = cost_dict.get(date_str, 0.0)
-            actual_cumulative_sum += daily_cost
-            cumulative_sum += daily_cost
-            
-            actual_daily.append(round(daily_cost, 2))
-            actual_cumulative.append(round(actual_cumulative_sum, 2))
-            forecast_cumulative.append(None) 
-            
-            # Anomaly detection: actual > fitted upper band + min tolerance
-            thresh = anomaly_thresholds.get(date_str, float('inf'))
-            is_anomaly = daily_cost > thresh and daily_cost > 10.0 # Ignore small anomalies
-            anomalies.append(is_anomaly)
-                
-        else:
-            # Forecast from the ML model
-            if cutoff_day > 0 and len(actual_cumulative) == cutoff_day and forecast_cumulative[-1] is None:
-                forecast_cumulative[cutoff_day - 1] = round(cumulative_sum, 2)
-
-            pred_val = max(0.0, future_forecasts.get(date_str, 0.0))
-            cumulative_sum += pred_val
-            
-            actual_daily.append(None)
-            actual_cumulative.append(None)
-            forecast_cumulative.append(round(cumulative_sum, 2))
-            anomalies.append(False)
-            
-    costs_crud.save_forecast_snapshot(cursor, scope_id, active_tags, base_date, round(cumulative_sum, 2))
-    cursor.connection.commit()
     budget_amount = costs_crud.get_budget(cursor, scope_id, active_tags, base_date)
 
-    return {
-        "month": f"{base_date.year}-{base_date.month:02d}",
-        "projected_total": round(cumulative_sum, 2),
-        "labels": labels,
-        "actual_daily": actual_daily,
-        "actual_cumulative": actual_cumulative,
-        "forecast_cumulative": forecast_cumulative,
-        "anomalies": anomalies,
-        "budget": budget_amount
-    }
+    return _build_response_payload(
+        base_date=base_date,
+        num_days=num_days,
+        cutoff_day=cutoff_day,
+        cost_dict=cost_dict,
+        future_forecasts=future_forecasts,
+        budget_amount=budget_amount,
+        anomaly_thresholds=anomaly_thresholds
+    )
 
