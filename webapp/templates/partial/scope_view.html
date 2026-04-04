@@ -37,7 +37,8 @@
         <option value="">Vyberte další tag</option>
         {% for tag in top_tags %}
             {% if tag.key not in active_tags %}
-                <option value="{{ tag.key }}">{{ tag.key }}</option>
+                {% set coverage = (tag.count / tag.total * 100) if tag.total > 0 else 0 %}
+                <option value="{{ tag.key }}">{{ tag.key }} ({{ coverage | round | int }}%)</option>
             {% endif %}
         {% endfor %}
     </select>

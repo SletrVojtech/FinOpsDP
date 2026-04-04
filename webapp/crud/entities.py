@@ -70,26 +70,30 @@ def get_chain(cursor, current_node_id: int):
     return [{"id": r[0], "name": r[1]} for r in cursor.fetchall()]
 
 def get_scoped_top_tags(cursor, parent_id=None, limit=15):
-    """Top-Down recursion to find the most frequent tags in the scope."""
+    """Top-Down recursion to find the most frequent tags in the scope, including total entity count."""
     if parent_id is None:
         # Starting in the root
         parent_id = 0
 
     # Already scoped, recursively going down.
+    # We calculate the total count of entities in the subtree to provide "tag quality" metrics.
     cursor.execute("""
         WITH RECURSIVE SubTree AS (
             SELECT Id, Tags FROM Entities WHERE Id = %s
             UNION ALL
             SELECT e.Id, e.Tags FROM Entities e
             JOIN SubTree s ON e.ParentId = s.Id
+        ),
+        Stats AS (
+            SELECT COUNT(*) as total_count FROM SubTree
         )
-        SELECT key, COUNT(*) as freq
+        SELECT key, COUNT(*) as freq, (SELECT total_count FROM Stats) as total
         FROM SubTree s, jsonb_object_keys(s.Tags) as key
         WHERE s.Tags IS NOT NULL
         GROUP BY key ORDER BY freq DESC LIMIT %s;
     """, (parent_id, limit))
         
-    return [{"key": r[0], "count": r[1]} for r in cursor.fetchall()]
+    return [{"key": r[0], "count": r[1], "total": r[2]} for r in cursor.fetchall()]
 
 def get_scoped_items(cursor, parent_id=None):
     """Return entites in the scope - only one tier lower."""
