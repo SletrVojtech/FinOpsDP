@@ -24,9 +24,16 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r data_collector/requirements.txt
         pip install -r data_collector/requirements-tests.txt
+        pip install -r webapp/requirements.txt
+        pip install -r webapp/requirements-tests.txt
 
-    - name: Run Pytest
+    - name: Run Data Collector Pytest
       env:
         PYTHONPATH: ${{ github.workspace }}/data_collector
       run: |
         python -m pytest data_collector/tests/
+    - name: Run Webapp Pytest
+      env:
+        PYTHONPATH: ${{ github.workspace }}/webapp
+      run: |
+        python -m pytest webapp/tests/
