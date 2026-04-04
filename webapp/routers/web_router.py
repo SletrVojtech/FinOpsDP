@@ -10,13 +10,17 @@ from services import cost_service as costs_service
 from datetime import date, timedelta
 
 
+import os
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent.parent
 router = APIRouter(tags=["Web UI"])
-templates = Jinja2Templates(directory="templates")
+templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 @router.get("/", response_class=HTMLResponse)
 def dashboard(request: Request):
     """Default page"""
-    return templates.TemplateResponse("dashboard.html", {"request": request})
+    return templates.TemplateResponse(request, "dashboard.html", {})
 
 @router.get("/ui/scope/{node_id}", response_class=HTMLResponse)
 @router.get("/ui/scope/", response_class=HTMLResponse)
@@ -41,8 +45,7 @@ def get_scope(request: Request, node_id: int = 0, cursor = Depends(get_db_cursor
     # Create a stackable filter query
     items = entities.get_dynamic_items(cursor, node_id, active_tags)
 
-    return templates.TemplateResponse("partial/scope_view.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "partial/scope_view.html", {
         "current_scope_id": node_id,
         "chain": chain,
         "top_tags": top_tags,
@@ -60,8 +63,7 @@ def get_tag_values(request: Request, scope_id: str = "", tag_key: str = None, cu
     scope_int = int(scope_id) if scope_id else 0
     values = entities.get_scoped_tag_values(cursor, scope_int, tag_key)
     
-    return templates.TemplateResponse("partial/tag_values.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "partial/tag_values.html", {
         "scope_id": scope_id,
         "tag_key": tag_key,
         "values": values,
@@ -79,8 +81,7 @@ def view_metrics_dashboard(request: Request, entity_id: int, current_qs: str = "
     cursor.execute("SELECT ResourceName FROM Entities WHERE Id = %s", (entity_id,))
     entity_name = cursor.fetchone()[0]
 
-    return templates.TemplateResponse("metrics_dashboard.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "metrics_dashboard.html", {
         "entity_id": entity_id,
         "entity_name": entity_name,
         "available_metrics": available_metrics,
@@ -99,8 +100,7 @@ def view_chargeback_dashboard(
     scope_int = int(scope_id) if scope_id else 0
     top_tags = entities.get_scoped_top_tags(cursor, scope_int)
     
-    return templates.TemplateResponse("chargeback_dashboard.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "chargeback_dashboard.html", {
         "scope_id": scope_id,
         "current_qs": current_qs,
         "top_tags": top_tags
@@ -113,8 +113,7 @@ def view_allocations_manager(
 ):
     """List and edit allocation rules"""
     rules = allocations.get_allocation_rules(cursor)
-    return templates.TemplateResponse("allocations_manager.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "allocations_manager.html", {
         "rules": rules
     })
 
@@ -124,8 +123,7 @@ def krr_index(request: Request, cursor = Depends(get_db_cursor)):
     """Lists all available clusters with reccomendations."""
 
     clusters = krr.get_krr_clusters(cursor)
-    return templates.TemplateResponse("krr_dashboard.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "krr_dashboard.html", {
         "clusters": clusters
     })
 
@@ -149,8 +147,7 @@ def krr_detail(request: Request, cluster_id: int, cursor = Depends(get_db_cursor
         
         recommendations.append(clean_row)
 
-    return templates.TemplateResponse("krr_report.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "krr_report.html", {
         "cluster_name": cluster_name,
         "recommendations": recommendations
     })
@@ -163,8 +160,7 @@ def list_clusters(request: Request, cursor = Depends(get_db_cursor)):
     cursor.execute(query)
     clusters = [{"id": row[0], "name": row[1]} for row in cursor.fetchall()]
     
-    return templates.TemplateResponse("clusters_dashboard.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "clusters_dashboard.html", {
         "clusters": clusters
     })
 
@@ -205,8 +201,7 @@ def cluster_cost_detail(request: Request, cluster_id: int,
     if request.headers.get("Accept") == "application/json":
         return JSONResponse({"chart_data": chart_data, "month": target_month_str})
 
-    return templates.TemplateResponse("cluster_daily.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "cluster_daily.html", {
         "cluster_name": cluster_name,
         "cluster_id": cluster_id,
         "chart_data": chart_data,
