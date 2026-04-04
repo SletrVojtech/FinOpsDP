@@ -1,6 +1,6 @@
 import urllib.parse
 from fastapi import APIRouter, Request, Depends
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from db.database import get_db_cursor
 from crud import entities, metrics, costs, allocations, krr
@@ -164,28 +164,46 @@ def list_clusters(request: Request, cursor = Depends(get_db_cursor)):
     })
 
 @router.get("/ui/clusters/{cluster_id}/costs")
-def cluster_cost_detail(request: Request, cluster_id: int, cursor = Depends(get_db_cursor)):
-    """Plot a stacked graph with daily costs for given cluster"""
+def cluster_cost_detail(request: Request, cluster_id: int,
+                        target_month: str = None, cursor = Depends(get_db_cursor)):
+    """Plot a stacked graph with daily costs for given cluster.
     
+    Accepts an optional ?target_month=YYYY-MM query parameter.
+    When called with Accept: application/json it returns only the chart data
+    so the frontend can refresh the chart without a full page reload.
+    """
     # Get cluster name
     cursor.execute("SELECT ResourceName FROM Entities WHERE Id = %s", (cluster_id,))
     row = cursor.fetchone()
     cluster_name = row[0] if row else "Neznámý cluster"
 
-    base_date = (date.today() - timedelta(days=1)).replace(day=1)
-    target_month_str = base_date.strftime("%Y-%m")
+    # Resolve target month
+    if target_month:
+        year, month = map(int, target_month.split("-"))
+        base_date = date(year, month, 1)
+        target_month_str = target_month
+    else:
+        base_date = (date.today() - timedelta(days=1)).replace(day=1)
+        target_month_str = base_date.strftime("%Y-%m")
 
-    
-    forecast_data = costs_service.calculate_chargeback_forecast(cursor, cluster_id,{"cluster": cluster_name}, target_month_str)
-    daily_cluster_costs = {}
-    for date_str, daily_cost in zip(forecast_data["labels"], forecast_data["actual_daily"]):
-        if daily_cost is not None:
-            daily_cluster_costs[date_str] = daily_cost
+    forecast_data = costs_service.calculate_chargeback_forecast(
+        cursor, cluster_id, {"cluster": cluster_name}, target_month_str
+    )
+    daily_cluster_costs = {
+        date_str: daily_cost
+        for date_str, daily_cost in zip(forecast_data["labels"], forecast_data["actual_daily"])
+        if daily_cost is not None
+    }
     chart_data = get_daily_namespace_allocation(cursor, cluster_id, base_date, daily_cluster_costs)
-    print(chart_data)
+
+    # JSON-only response for AJAX month changes
+    if request.headers.get("Accept") == "application/json":
+        return JSONResponse({"chart_data": chart_data, "month": target_month_str})
+
     return templates.TemplateResponse("cluster_daily.html", {
         "request": request,
         "cluster_name": cluster_name,
+        "cluster_id": cluster_id,
         "chart_data": chart_data,
         "month": target_month_str
     })

@@ -12,68 +12,104 @@
 <body>
 
     <a href="/ui/clusters">Zpět na seznam clusterů</a>
-    <h2>Denní náklady na namespaces ({{ month }})</h2>
+    <h2 id="monthTitle">Denní náklady na namespaces ({{ month }})</h2>
     <h3>Cluster: {{ cluster_name }}</h3>
+
+    <div style="margin-bottom: 20px;">
+        <label for="monthSelect">Zúčtovací měsíc:</label>
+        <input type="month" id="monthSelect" value="{{ month }}">
+    </div>
 
     <div class="chart-container">
         <canvas id="costChart"></canvas>
     </div>
 
     <script>
-        const chartData = {{ chart_data | tojson | safe }};
-
-
+        let costChartInstance = null;
         const colors = [
             '#4e79a7', '#f28e2c', '#e15759', '#76b7b2', '#59a14f', 
             '#edc949', '#af7aa1', '#ff9da7', '#9c755f', '#bab0ab'
         ];
-        
-        chartData.datasets.forEach((dataset, index) => {
-            dataset.backgroundColor = colors[index % colors.length];
-        });
 
-        const ctx = document.getElementById('costChart').getContext('2d');
-        new Chart(ctx, {
-            type: 'bar',
-            data: {
-                labels: chartData.labels,
-                datasets: chartData.datasets
-            },
-            options: {
-                responsive: true,
-                plugins: {
-                    title: {
-                        display: true,
-                        text: 'Denní náklady podle Namespaces'
-                    },
-                    tooltip: {
-                        mode: 'index',
-                        intersect: false,
-                        callbacks: {
-                            label: function(context) {
-                                let label = context.dataset.label || '';
-                                if (label) {
-                                    label += ': ';
+        function buildChart(chartData) {
+            if (costChartInstance) {
+                costChartInstance.destroy();
+            }
+
+            chartData.datasets.forEach((dataset, index) => {
+                dataset.backgroundColor = colors[index % colors.length];
+            });
+
+            const ctx = document.getElementById('costChart').getContext('2d');
+            costChartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: chartData.labels,
+                    datasets: chartData.datasets
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: 'Denní náklady podle Namespaces'
+                        },
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false,
+                            callbacks: {
+                                label: function(context) {
+                                    let label = context.dataset.label || '';
+                                    if (label) {
+                                        label += ': ';
+                                    }
+                                    if (context.parsed.y !== null) {
+                                        label += context.parsed.y.toFixed(2) + ' €';
+                                    }
+                                    return label;
                                 }
-                                if (context.parsed.y !== null) {
-                                    label += context.parsed.y.toFixed(2) + ' €';
-                                }
-                                return label;
                             }
                         }
-                    }
-                },
-                scales: {
-                    x: {
-                        stacked: true,
                     },
-                    y: {
-                        stacked: true,
-                        beginAtZero: true
+                    scales: {
+                        x: {
+                            stacked: true,
+                        },
+                        y: {
+                            stacked: true,
+                            beginAtZero: true
+                        }
                     }
                 }
+            });
+        }
+
+        async function updateData() {
+            const month = document.getElementById('monthSelect').value;
+            const clusterId = "{{ cluster_id }}";
+            const url = `/ui/clusters/${clusterId}/costs?target_month=${month}`;
+
+            try {
+                const response = await fetch(url, {
+                    headers: {
+                        'Accept': 'application/json'
+                    }
+                });
+                if (!response.ok) throw new Error('Network response was not ok');
+                const data = await response.json();
+                buildChart(data.chart_data);
+                
+                // Update title with month
+                document.getElementById('monthTitle').innerText = `Denní náklady na namespaces (${data.month})`;
+            } catch (error) {
+                console.error('Error fetching cluster data:', error);
             }
-        });
+        }
+
+        document.getElementById('monthSelect').addEventListener('change', updateData);
+
+        // Initial render
+        buildChart({{ chart_data | tojson | safe }});
     </script>
 
 </body>
