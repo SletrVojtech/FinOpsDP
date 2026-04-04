@@ -125,9 +125,7 @@ def get_aggregated_daily_costs_by_category(
     cursor, scope_id: int, active_tags: dict,
     start_date: date = None, end_date: date = None
 ) -> dict:
-    """Cloud costs by ServiceCategory + each matched K8s namespace as 'k8s:<name>'.
-    Allocation-rule adjustments stay in the total only.
-    """
+    """Cloud costs by ServiceCategory + each matched K8s namespace as 'k8s:<name>'."""
     cat_dict: dict[str, dict[str, float]] = {}
     for row in costs_crud.get_daily_costs_by_category(cursor, scope_id, active_tags,
                                                        start_date=start_date, end_date=end_date):
@@ -135,23 +133,75 @@ def get_aggregated_daily_costs_by_category(
         d[row["date"]] = d.get(row["date"], 0.0) + row["cost"]
 
     if active_tags:
-        cluster_map: dict[int, list[str]] = {}
-        for ns in costs_crud.get_namespaces_for_tags(cursor, active_tags):
-            cluster_map.setdefault(ns[1], []).append(ns[2])
-
-        for cluster_id, ns_names in cluster_map.items():
-            cluster_cost_dict = {r["date"]: r["cost"] for r in
-                                 costs_crud.get_daily_costs(cursor, cluster_id, {},
-                                                            start_date=start_date, end_date=end_date)}
-            ns_costs = kube_chargeback.get_daily_namespace_allocation(
-                cursor, cluster_id, base_date=None,
-                daily_cluster_costs=cluster_cost_dict, return_ui_format=False,
-                start_date=start_date, end_date=end_date)
-            for ns_name in ns_names:
-                if ns_name in ns_costs:
-                    cat_dict.setdefault(f"k8s:{ns_name}", {}).update(ns_costs[ns_name])
+        ns_allocations = _get_shared_namespace_allocations(cursor, active_tags, start_date, end_date)
+        for ns_id, ns_info in ns_allocations.items():
+            cat_key = f"k8s:{ns_info['name']}"
+            cat_dict.setdefault(cat_key, {}).update(ns_info["costs"])
 
     return cat_dict
+
+
+def get_aggregated_daily_costs_by_tag_key(
+    cursor, scope_id: int, active_tags: dict, tag_key: str,
+    start_date: date = None, end_date: date = None
+) -> dict:
+    """Cloud costs grouped by values of a given tag key + K8s namespace costs attributed to their own tag values."""
+    tag_dict: dict[str, dict[str, float]] = {}
+    
+    # Get raw cloud costs grouped by tag value
+    for row in costs_crud.get_daily_costs_by_tag_key(cursor, scope_id, active_tags, tag_key,
+                                                     start_date=start_date, end_date=end_date):
+        d = tag_dict.setdefault(row["tag_value"], {})
+        d[row["date"]] = d.get(row["date"], 0.0) + row["cost"]
+
+    # Add K8s namespace costs
+    if active_tags:
+        ns_allocations = _get_shared_namespace_allocations(cursor, active_tags, start_date, end_date)
+        for ns_id, ns_info in ns_allocations.items():
+            tag_val = ns_info["tags"].get(tag_key, "Unrecognized")
+            d = tag_dict.setdefault(tag_val, {})
+            for date_str, cost in ns_info["costs"].items():
+                d[date_str] = d.get(date_str, 0.0) + cost
+
+    return tag_dict
+
+
+def _get_shared_namespace_allocations(cursor, active_tags: dict, start_date: date, end_date: date) -> dict:
+    """Helper to find namespaces and calculate their allocations once."""
+    query_ns = "SELECT Id, ParentId, ResourceName, Tags FROM Entities WHERE ResourceType = 'kubernetes_namespace'"
+    params_ns = []
+    for k, v in active_tags.items():
+        query_ns += " AND Tags->>%s = %s"
+        params_ns.extend([k, v])
+    
+    cursor.execute(query_ns, params_ns)
+    ns_rows = cursor.fetchall()
+    
+    # cluster_id -> list of (ns_id, ns_name, ns_tags)
+    cluster_map: dict[int, list[tuple[int, str, dict]]] = {}
+    for ns_id, cluster_id, ns_name, ns_tags in ns_rows:
+        cluster_map.setdefault(cluster_id, []).append((ns_id, ns_name, ns_tags))
+
+    results = {}
+    for cluster_id, ns_list in cluster_map.items():
+        # Daily costs for given cluster
+        cluster_cost_dict = {r["date"]: r["cost"] for r in
+                             costs_crud.get_daily_costs(cursor, cluster_id, {},
+                                                        start_date=start_date, end_date=end_date)}
+        # Batch attribution for all namespaces in this cluster
+        all_ns_allocations = kube_chargeback.get_daily_namespace_allocation(
+            cursor, cluster_id, base_date=None,
+            daily_cluster_costs=cluster_cost_dict, return_ui_format=False,
+            start_date=start_date, end_date=end_date)
+            
+        for ns_id, ns_name, ns_tags in ns_list:
+            if ns_name in all_ns_allocations:
+                results[ns_id] = {
+                    "name": ns_name,
+                    "tags": ns_tags if isinstance(ns_tags, dict) else {},
+                    "costs": all_ns_allocations[ns_name]
+                }
+    return results
 
 
 def _prepare_dates_and_cutoff(cursor, target_month: str = None):
@@ -189,13 +239,11 @@ def _prepare_dates_and_cutoff(cursor, target_month: str = None):
         
     return base_date, start_date, end_date, num_days, cutoff_date_obj, cutoff_day
 
-def _build_response_payload(base_date, num_days, cutoff_day, cost_dict, future_forecasts,
-                             budget_amount, anomaly_thresholds=None, projected_total=None,
-                             category_dict=None):
-    """Build the response payload for the given month"""
-    anomaly_thresholds = anomaly_thresholds or {}
-    category_dict = category_dict or {}
-    category_arrays: dict[str, list] = {cat: [] for cat in category_dict}
+def _build_response_payload(
+    base_date, num_days, cutoff_day, cost_dict, future_forecasts, budget_amount, projected_total, anomaly_thresholds, breakdown_dict
+) -> dict:
+    """Consolidates cost and forecast data into a response dictionary for the UI."""
+    breakdown_arrays: dict[str, list] = {cat: [] for cat in breakdown_dict}
 
     labels, actual_daily, actual_cumulative, forecast_cumulative, anomalies = [], [], [], [], []
     cumulative_sum, actual_cumulative_sum = 0, 0
@@ -204,8 +252,8 @@ def _build_response_payload(base_date, num_days, cutoff_day, cost_dict, future_f
         current_date = date(base_date.year, base_date.month, day)
         date_str = current_date.isoformat()
         labels.append(date_str)
-        for cat, arr in category_arrays.items():
-            arr.append(round(category_dict[cat].get(date_str, 0.0), 2) if day <= cutoff_day else None)
+        for cat, arr in breakdown_arrays.items():
+            arr.append(round(breakdown_dict[cat].get(date_str, 0.0), 2) if day <= cutoff_day else None)
         # If the day is within the actual data range, use actual data
         if day <= cutoff_day:
             daily_cost = cost_dict.get(date_str, 0.0)
@@ -238,26 +286,29 @@ def _build_response_payload(base_date, num_days, cutoff_day, cost_dict, future_f
         "forecast_cumulative": forecast_cumulative,
         "anomalies": anomalies,
         "budget": budget_amount,
-        "breakdown_by_category": category_arrays,
+        "breakdown_by_category": breakdown_arrays,
     }
 
-
-def get_chargeback_dashboard_data(cursor, scope_id: int, active_tags: dict, target_month: str = None) -> dict:
+def get_chargeback_dashboard_data(cursor, scope_id: int, active_tags: dict, 
+                                  target_month: str = None, group_by_tag: str = None) -> dict:
     """
     Main entry point for UI. Attempt to load pre-calculated AutoARIMA data from DB.
-    If not available (or older than 24h), fallback to fast AutoETS calculation.
     """
     base_date, start_date, end_date, num_days, cutoff_date_obj, cutoff_day = _prepare_dates_and_cutoff(cursor, target_month)
     
     latest = costs_crud.get_latest_forecast(cursor, scope_id, active_tags, base_date)
 
     if not latest or not latest.get('daily_forecasts'):
-        return calculate_chargeback_forecast(cursor, scope_id, active_tags, target_month)
+        return calculate_chargeback_forecast(cursor, scope_id, active_tags, target_month, group_by_tag)
         
     budget_amount = costs_crud.get_budget(cursor, scope_id, active_tags, base_date)
     cost_dict = get_aggregated_daily_costs(cursor, scope_id, active_tags, start_date=start_date, end_date=end_date)
     anomaly_thresholds = costs_crud.get_anomalies_for_month(cursor, scope_id, active_tags, start_date, end_date)
-    category_dict = get_aggregated_daily_costs_by_category(cursor, scope_id, active_tags, start_date=start_date, end_date=end_date)
+    
+    if group_by_tag:
+        breakdown_dict = get_aggregated_daily_costs_by_tag_key(cursor, scope_id, active_tags, group_by_tag, start_date=start_date, end_date=end_date)
+    else:
+        breakdown_dict = get_aggregated_daily_costs_by_category(cursor, scope_id, active_tags, start_date=start_date, end_date=end_date)
 
     return _build_response_payload(
         base_date=base_date,
@@ -268,20 +319,24 @@ def get_chargeback_dashboard_data(cursor, scope_id: int, active_tags: dict, targ
         budget_amount=budget_amount,
         projected_total=latest.get("projected_amount"),
         anomaly_thresholds=anomaly_thresholds,
-        category_dict=category_dict
+        breakdown_dict=breakdown_dict
     )
 
-def calculate_chargeback_forecast(cursor, scope_id: int, active_tags: dict, target_month: str = None) -> dict:
+def calculate_chargeback_forecast(cursor, scope_id: int, active_tags: dict, 
+                                  target_month: str = None, group_by_tag: str = None) -> dict:
     """
     Calculates monthly spend and creates an ML forecast with StatsForecast.
-    Includes on-the-fly anomaly detection based on prediction intervals.
     """
     base_date, start_date, end_date, num_days, cutoff_date_obj, cutoff_day = _prepare_dates_and_cutoff(cursor, target_month)
 
-    # Get history - 35 days before the month + the target month
+    # Get history
     history_start = start_date - timedelta(days=35)
     cost_dict = get_aggregated_daily_costs(cursor, scope_id, active_tags, start_date=history_start, end_date=end_date)
-    category_dict = get_aggregated_daily_costs_by_category(cursor, scope_id, active_tags, start_date=start_date, end_date=end_date)
+    
+    if group_by_tag:
+        breakdown_dict = get_aggregated_daily_costs_by_tag_key(cursor, scope_id, active_tags, group_by_tag, start_date=start_date, end_date=end_date)
+    else:
+        breakdown_dict = get_aggregated_daily_costs_by_category(cursor, scope_id, active_tags, start_date=start_date, end_date=end_date)
 
     # Transform to DataFrame for the model,
     # fill gaps for all days from history_start to cutoff_date.
@@ -374,7 +429,8 @@ def calculate_chargeback_forecast(cursor, scope_id: int, active_tags: dict, targ
         cost_dict=cost_dict,
         future_forecasts=future_forecasts,
         budget_amount=budget_amount,
+        projected_total=None,
         anomaly_thresholds=anomaly_thresholds,
-        category_dict=category_dict
+        breakdown_dict=breakdown_dict
     )
 

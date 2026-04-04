@@ -19,12 +19,16 @@
         </div>
 
         <div style="font-size: 1.2em;">
-            Odhad na konci měsíce: <strong id="projectedTotalDisplay" style="color: #000000;">---</strong>
-        </div>
-
-        <div style="margin-top: 6px;">
+            Odhad na konci měsíce: <strong id="projectedTotalDisplay" style="color: #000000;">---</strong>        <div style="margin-top: 6px;">
             <button id="btn-classic" onclick="setChartMode('classic')">Celkový</button>
             <button id="btn-stacked" onclick="setChartMode('stacked')">Kategorie</button>
+            <button id="btn-tag" onclick="setChartMode('tag')">Podle Tagu</button>
+
+            <select id="tagKeySelect" style="display: none; margin-left:10px; padding: 4px;" onchange="renderChargebackChart()">
+                {% for tag in top_tags %}
+                    <option value="{{ tag.key }}">{{ tag.key }}</option>
+                {% endfor %}
+            </select>
         </div>
     </div>
 
@@ -50,9 +54,20 @@
 
     function setChartMode(mode) {
         window._chartMode = mode;
+        
+        // Update button styles
         document.getElementById('btn-classic').style.cssText += ';background:' + (mode==='classic' ? '#4a90d9;color:#fff' : '#fff;color:') + ';';
         document.getElementById('btn-stacked').style.cssText += ';background:' + (mode==='stacked' ? '#4a90d9;color:#fff' : '#fff;color:') + ';';
-        if (window._lastChargebackData) buildAndRenderChart(window._lastChargebackData);
+        document.getElementById('btn-tag').style.cssText += ';background:' + (mode==='tag' ? '#4a90d9;color:#fff' : '#fff;color:') + ';';
+        
+        // Show/hide tag selector
+        document.getElementById('tagKeySelect').style.display = (mode === 'tag') ? 'inline-block' : 'none';
+        
+        if (mode === 'tag' || (window._lastChargebackData && !window._lastChargebackData.breakdown_by_category)) {
+             renderChargebackChart();
+        } else if (window._lastChargebackData) {
+             buildAndRenderChart(window._lastChargebackData);
+        }
     }
 
     function buildAndRenderChart(data) {
@@ -72,12 +87,19 @@
               fill:false, tension:0.1, yAxisID:'y' }
         ];
 
-        if (window._chartMode === 'stacked') {
+        if (window._chartMode === 'stacked' || window._chartMode === 'tag') {
             Object.keys(data.breakdown_by_category || {}).forEach(function(cat, i) {
-                datasets.push({ type:'bar', label: cat.startsWith('k8s:') ? 'K8s: '+cat.slice(4) : cat,
+                let label = cat;
+                if (cat.startsWith('k8s:')) label = 'K8s: ' + cat.slice(4);
+                
+                datasets.push({ 
+                    type:'bar', 
+                    label: label,
                     data: data.breakdown_by_category[cat],
                     backgroundColor: CAT_PALETTE[i % CAT_PALETTE.length],
-                    yAxisID:'y1', stack:'cat' });
+                    yAxisID:'y1', 
+                    stack:'cat' 
+                });
             });
         } else {
             datasets.push({ type:'bar', label:'Denní náklad (Sloupce)', data:data.actual_daily,
@@ -116,7 +138,7 @@
                           title:{ display:true, text:'Kumulativní náklady (€)' }, beginAtZero:true },
                     y1: { type:'linear', display:true, position:'right',
                           title:{ display:true, text:'Denní náklady (€)' },
-                          beginAtZero:true, stacked: window._chartMode==='stacked',
+                          beginAtZero:true, stacked: (window._chartMode==='stacked' || window._chartMode==='tag'),
                           grid:{ drawOnChartArea:false } }
                 }
             }
@@ -142,6 +164,13 @@
         }
         if (queryString && queryString.trim() !== "") {
             url += `&${queryString}`;
+        }
+        
+        if (window._chartMode === 'tag') {
+            const tagKey = document.getElementById('tagKeySelect').value;
+             if (tagKey) {
+                 url += `&group_by_tag=${tagKey}`;
+             }
         }
 
         try {
@@ -209,6 +238,7 @@
     }
 
     document.getElementById('monthSelect').addEventListener('change', renderChargebackChart);
-
-    renderChargebackChart();
+    
+    // Initial UI state for buttons
+    setChartMode('classic');
 </script>

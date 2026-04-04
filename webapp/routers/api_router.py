@@ -60,13 +60,16 @@ def api_get_chargeback_data(
     request: Request,
     scope_id: int = 0,
     target_month: str = None, 
+    group_by_tag: str = None,
     cursor = Depends(get_db_cursor)
 ):
-    """Returns data for current month spend and projected forecast"""
+    """Returns data for current month spend and projected forecast, with optional grouping by tag."""
     
     active_tags = extract_active_tags(request)
     
-    data = cost_service.get_chargeback_dashboard_data(cursor, scope_id, active_tags, target_month)
+    data = cost_service.get_chargeback_dashboard_data(
+        cursor, scope_id, active_tags, target_month, group_by_tag
+    )
     
     return data
 

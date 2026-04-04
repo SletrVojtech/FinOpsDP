@@ -92,13 +92,18 @@ def view_metrics_dashboard(request: Request, entity_id: int, current_qs: str = "
 def view_chargeback_dashboard(
     request: Request, 
     scope_id: str = "", 
-    current_qs: str = ""
+    current_qs: str = "",
+    cursor = Depends(get_db_cursor)
 ):
     """Shows a page with chargeback dashboard"""
+    scope_int = int(scope_id) if scope_id else 0
+    top_tags = entities.get_scoped_top_tags(cursor, scope_int)
+    
     return templates.TemplateResponse("chargeback_dashboard.html", {
         "request": request,
         "scope_id": scope_id,
-        "current_qs": current_qs
+        "current_qs": current_qs,
+        "top_tags": top_tags
     })
 
 @router.get("/ui/allocations", response_class=HTMLResponse)
