@@ -5,6 +5,9 @@ from rabbitmq.connector import RabbitMQClient
 
 log = logging.getLogger("kube_runner")
 
+from registry import register_collector
+
+@register_collector("kube", help_text="Download from Kubernetes and send to RMQ", cli_args=[("--hours", {"type": int, "default": 240, "help": "Time window to download data from"})])
 def run_kube_collection(config_path: str = ".conf/kube_clusters.yml", hours_back: int = 24):
     """
     Run Prometheus collector across kubernetes clusters.

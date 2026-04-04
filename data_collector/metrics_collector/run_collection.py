@@ -147,6 +147,9 @@ def run_account_in_memory(account, region, policy_data, output_dir, debug=False)
     return policy_counts, success
 
 
+from registry import register_collector
+
+@register_collector("metrics", help_text="Download metrics using Custodian and send to RMQ")
 def run_metrics_collector():
     try:
         parser = ConfigParser()
@@ -221,104 +224,3 @@ def run_metrics_collector():
     if not success:
         sys.exit(1)
 
-def main():
-    parser = argparse.ArgumentParser(description="Run Cloud Custodian policies in-memory")
-    parser.add_argument('--region', default='all', help='Region to target')
-    parser.add_argument("-v", "--verbose", action="count", help="Verbose Logging")
-    parser.add_argument("-q", "--quiet", action="count", help="Less logging (repeatable)")
-    parser.add_argument("-s", "--output_dir",  default='.log',
-                       help="Directory mainly for log outputs.")
-    parser.add_argument("-m", "--metrics", default="metrics.yml", help="Metrics configuration file")
-
-    args = parser.parse_args()
-
-
-
-    try:
-        with open(args.metrics, 'r') as f:
-            metrics_conf = yaml.safe_load(f)
-
-        print(metrics_conf)
-
-        policies_list = []
-        for entry in metrics_conf.get('measure', []):
-            resource = entry['resource']
-            crafter = CrafterFactory.get_crafter(resource)
-
-            for metric in entry['measurement']:
-                policies_list.append(crafter.craft(
-                    resource=resource,
-                    metric=metric['metric'],
-                ))
-
-        POLICY_DATA = {
-            "policies": policies_list
-        }
-        print(POLICY_DATA)
-
-    except Exception as e:
-        log.error(f"Error loading policies: {e}")
-        sys.exit(1)
-
-    # Load c7n-org account config
-    accounts_config, _, _ = init(
-        config='accounts.yml',
-        use=None,
-        debug=False,
-        verbose=False,
-        accounts=None, tags=None, policies=None
-    )
-
-    azure_config,_,_ = init(
-        config='subscriptions.yml',
-        use=None,
-        debug=False,
-        verbose=False,
-        accounts=None, tags=None, policies=None
-    )
-
-    accounts_config["subscriptions"] = azure_config.get("subscriptions", ())
-    
-
-    worker_count = 4
-    policy_counts = Counter()
-    success = True
-
-    # Run processes
-    with ProcessPoolExecutor(max_workers=worker_count) as executor:
-        futures = {}
-        for account in accounts_iterator(accounts_config):
-            for region in resolve_regions(account.get('regions', ['us-east-1']), account):
-                
-                future = executor.submit(
-                    run_account_in_memory,
-                    account=account,
-                    region=region,
-                    policy_data=POLICY_DATA,
-                    output_dir=args.output_dir
-                )
-                futures[future] = (account, region)
-
-        # Collect the results and log failures
-        for f in as_completed(futures):
-            a, r = futures[f]
-            if f.exception():
-                log.warning(
-                    "Error running policy in %s @ %s exception: %s",
-                    a['name'], r, f.exception())
-                continue
-
-            account_region_pcounts, account_region_success = f.result()
-            for p in account_region_pcounts:
-                policy_counts[p] += account_region_pcounts[p]
-
-            if not account_region_success:
-                success = False
-
-    log.info("Policy resource counts %s" % policy_counts)
-
-    if not success:
-        sys.exit(1)
-
-if __name__ == '__main__':
-    main()

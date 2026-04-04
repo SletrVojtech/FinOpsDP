@@ -1,4 +1,3 @@
-import pytest
 from unittest.mock import MagicMock, patch
 from db_loader.db_loader import DBLoader
 

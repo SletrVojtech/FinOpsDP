@@ -30,6 +30,9 @@ def deduplicate_pricing_records(pricing_records: List[PricingRecord]) -> List[Pr
     return list(unique_records.values())
 
 
+from registry import register_collector
+
+@register_collector("catalogs", help_text="Download catalogs")
 def run_catalog_collector():
     
     aws_hw = AWSHardwareDownloader()
@@ -43,13 +46,12 @@ def run_catalog_collector():
     
     # Get HW info
     print("Fetching Hardware")
-    #all_hw = aws_hw.fetch_hardware() + azure_hw.fetch_hardware()
-    all_hw = []
+    all_hw = aws_hw.fetch_hardware() + azure_hw.fetch_hardware()
     
     # Get Price info
     print("Fetching Pricing")
-    #all_pricing = aws_price.fetch_pricing() + azure_price.fetch_pricing()
-    all_pricing = deduplicate_pricing_records(azure_price.fetch_pricing())
+    all_pricing = deduplicate_pricing_records(aws_price.fetch_pricing()) + deduplicate_pricing_records(azure_price.fetch_pricing())
+    #all_pricing = deduplicate_pricing_records(azure_price.fetch_pricing())
     
 
     payload_dict = {

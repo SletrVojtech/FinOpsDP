@@ -23,15 +23,8 @@ log = logging.getLogger("finops_cli")
 log.handlers.clear()
 
 from db_loader.db_loader import DBLoader
-from metrics_collector.run_collection import run_metrics_collector
-from kube_collector.run_collection import run_kube_collection
-from cost_collector.run_collection import run_cost_downloads
-from metrics_collector.config_parser import ConfigParser
-from catalog_collector.run_collection import run_catalog_collector
-
-
-
-
+from registry import load_collectors, COLLECTOR_REGISTRY
+import yaml
 
 
 
@@ -61,44 +54,98 @@ def get_mq_channel():
     return connection, channel
 
 
+def _load_scheduler_config(config_path=".conf/scheduler.yml"):
+    """Loads and parses the scheduler configuration file."""
+    if not os.path.exists(config_path):
+        log.warning(f"Scheduler config not found at {config_path}")
+        return {}
+    with open(config_path, 'r') as f:
+        return yaml.safe_load(f) or {}
+
+def _register_scheduled_job(name, func, conf):
+    """
+    Registers a single job using the provided schedule configuration.
+    Based on https://python.plainenglish.io/building-an-intelligent-task-scheduler-in-python-my-journey-to-automating-the-chaos-3cd258eaab97
+    """
+    kwargs = conf.get("kwargs", {})
+
+    # Time-based execution
+    if "time" in conf:
+        schedule.every().day.at(conf["time"]).do(func, **kwargs)
+        log.info(f"Registered '{name}' to run daily at {conf['time']}")
+        return
+
+    # Interval-based execution (hours, minutes, days, weeks, months)
+    if "unit" in conf:
+        unit = conf["unit"]
+        interval = conf.get("interval", 1) # Default to 1 if not specified
+
+        # Special workaround wrapper for 'months'
+        if unit == "months":
+            def run_monthly(*args, **kwargs_inner):
+                import datetime
+                if datetime.datetime.now().day == conf.get("day_of_month", 1):
+                    func(*args, **kwargs_inner)
+            
+            schedule.every().day.at(conf.get("at", "00:30")).do(run_monthly, **kwargs)
+            log.info(f"Registered '{name}' to run monthly on day {conf.get('day_of_month', 1)}")
+            return
+            
+        # Dynamically fetch standard schedule unit (hours, minutes, days, weeks)
+        job = schedule.every(interval)
+        if hasattr(job, unit):
+            job = getattr(job, unit)
+        else:
+            log.warning(f"Unsupported schedule unit '{unit}' for '{name}'")
+            return
+            
+        if "at" in conf and unit in ["days", "weeks"]:
+            job = job.at(conf["at"])
+            
+        job.do(func, **kwargs)
+        log.info(f"Registered '{name}' to run every {interval} {unit}")
+        return
+
+    log.warning(f"Invalid schedule configuration for '{name}': {conf}")
+
 def run_scheduler():
-    log.info("Running scheduler")
+    log.info("Initializing scheduler from configuration...")
 
-    schedule.every(1).hours.do(run_metrics_collector)
+    sched_config = _load_scheduler_config()
+    schedules = sched_config.get("schedules", {})
     
-    #schedule.every().day.at("01:00").do(run_kube_collection, hours_back=120)
+    # Iterate through dynamically loaded collectors and check if they have a schedule
+    for name, metadata in COLLECTOR_REGISTRY.items():
+        if name not in schedules:
+            continue
+            
+        _register_scheduled_job(name, metadata["func"], schedules[name])
 
-    schedule.every().day.at("03:00").do(run_cost_downloads)
-    schedule.run_all()
+    if not schedule.get_jobs():
+        log.warning("No jobs were scheduled!")
+        
     log.info("Scheduler started")
     while True:
         schedule.run_pending()
         time.sleep(60)
 
 def main():
+    load_collectors()
+
     parser = argparse.ArgumentParser(description="FinOps central collector CLI")
     subparsers = parser.add_subparsers(dest="command", help="Available modules:")
 
     # DB loader
     subparsers.add_parser("loader", help="DB loader between RabbitMQ and PostgreSQL")
 
-    # Kube Collector
-    parser_kube = subparsers.add_parser("kube", help="Download from Kubernetes and send to RMQ")
-    parser_kube.add_argument("--hours", type=int, default=24, help="Time window to download data from")
-
-    # Cost Collector
-    subparsers.add_parser("costs", help="Download CostExports from Cloud Billing API and send to RMQ")
-
-    # Metrics Collector
-    subparsers.add_parser("metrics", help="Download metrics using Custodian and send to RMQ")
-    # Catalog Collector
-    subparsers.add_parser("catalogs", help="Download catalogs")
-
     # Scheduler
     subparsers.add_parser("scheduler", help="Run scheduler")
-        # Scheduler
-    subparsers.add_parser("parser", help="Run scheduler")
 
+    # Dynamic Modules
+    for name, metadata in COLLECTOR_REGISTRY.items():
+        cmd_parser = subparsers.add_parser(name, help=metadata["help"])
+        for arg_name, arg_kwargs in metadata["cli_args"]:
+            cmd_parser.add_argument(arg_name, **arg_kwargs)
 
     args = parser.parse_args()
 
@@ -114,28 +161,20 @@ def main():
         finally:
             db_conn.close()
             mq_conn.close()
-
-    elif args.command == "kube":
-        log.info(f"Kube collector (history: {args.hours}h)")
-        run_kube_collection(hours_back=args.hours)
-        log.info("Done.")
-
-    elif args.command == "costs":
-        log.info("Cloud Billing API download...")
-        run_cost_downloads()
-        log.info("Done.")
-
-    elif args.command == "metrics":
-        log.info("Running metrics collection (using Custodian)")
-        run_metrics_collector()
-        log.info("Done.")
-    elif args.command == "catalogs":
-        log.info("Running catalog collection")
-        run_catalog_collector()
-        log.info("Done.")
+            
     elif args.command == "scheduler":
         try:
             run_scheduler()
+        except KeyboardInterrupt:
+            log.info("Closing...")
+            
+    elif args.command in COLLECTOR_REGISTRY:
+        log.info(f"Running collector: {args.command}")
+        kwargs = vars(args).copy()
+        kwargs.pop("command", None)
+        try:
+            COLLECTOR_REGISTRY[args.command]["func"](**kwargs)
+            log.info("Done.")
         except KeyboardInterrupt:
             log.info("Closing...")
     else:

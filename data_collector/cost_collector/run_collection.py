@@ -11,6 +11,9 @@ from cost_collector.data_loader import CostDataLoader
 
 log = logging.getLogger("cost_export_downloader")
 
+from registry import register_collector
+
+@register_collector("costs", help_text="Download CostExports from Cloud Billing API and send to RMQ")
 def run_cost_downloads(output_dir="/tmp/cost_exports"):
     # Load AWS accounts
     accounts_config, _, _ = init(
