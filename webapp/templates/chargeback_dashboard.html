@@ -1,27 +1,30 @@
 <div>
-    
-    <button hx-get="/ui/scope/{{ scope_id }}?{{ current_qs }}"
-            hx-target="#app-content"
-            hx-swap="innerHTML">
+
+    <button hx-get="/ui/scope/{{ scope_id }}?{{ current_qs }}" hx-target="#app-content" hx-swap="innerHTML">
         ⬅ Zpět na seznam zdrojů
     </button>
 
     <h2>Chargeback & Odhad nákladů</h2>
-    
+
     <div>
 
         <div>
             <label for="monthSelect">Zúčtovací měsíc:</label>
-            <input type="month" id="monthSelect" >
-            
+            <input type="month" id="monthSelect">
+
             <span>
                 Rozpočet: <strong id="budgetAmountText" style="color: #000000;">Načítám...</strong>
-                <button onclick="promptForBudget()" > Upravit</button>
+                <button onclick="promptForBudget()"> Upravit</button>
             </span>
         </div>
-        
+
         <div style="font-size: 1.2em;">
             Odhad na konci měsíce: <strong id="projectedTotalDisplay" style="color: #000000;">---</strong>
+        </div>
+
+        <div style="margin-top: 6px;">
+            <button id="btn-classic" onclick="setChartMode('classic')">Celkový</button>
+            <button id="btn-stacked" onclick="setChartMode('stacked')">Kategorie</button>
         </div>
     </div>
 
@@ -32,14 +35,98 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3"></script>
 
 <script>
     window.chargebackChartInstance = window.chargebackChartInstance || null;
+    window._lastChargebackData = null;
+    window._chartMode = 'classic';
+
+    var CAT_PALETTE = [
+        'rgba(54,162,235,.75)','rgba(255,159,64,.75)','rgba(75,192,192,.75)',
+        'rgba(153,102,255,.75)','rgba(255,205,86,.75)','rgba(231,76,60,.75)',
+        'rgba(46,204,113,.75)','rgba(52,152,219,.75)','rgba(155,89,182,.75)',
+    ];
+
+    function setChartMode(mode) {
+        window._chartMode = mode;
+        document.getElementById('btn-classic').style.cssText += ';background:' + (mode==='classic' ? '#4a90d9;color:#fff' : '#fff;color:') + ';';
+        document.getElementById('btn-stacked').style.cssText += ';background:' + (mode==='stacked' ? '#4a90d9;color:#fff' : '#fff;color:') + ';';
+        if (window._lastChargebackData) buildAndRenderChart(window._lastChargebackData);
+    }
+
+    function buildAndRenderChart(data) {
+        if (window.chargebackChartInstance) window.chargebackChartInstance.destroy();
+
+        var labels = data.labels.map(dateStr => {
+            var d = new Date(dateStr);
+            return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+        });
+
+        var datasets = [
+            { type:'line', label:'Průběžná útrata (Skutečnost)', data:data.actual_cumulative,
+              borderColor:'rgba(54,162,235,1)', backgroundColor:'rgba(54,162,235,0.2)',
+              fill:true, tension:0.1, yAxisID:'y' },
+            { type:'line', label:'Prognóza (Run-Rate)', data:data.forecast_cumulative,
+              borderColor:'rgba(255,159,64,1)', borderDash:[5,5],
+              fill:false, tension:0.1, yAxisID:'y' }
+        ];
+
+        if (window._chartMode === 'stacked') {
+            Object.keys(data.breakdown_by_category || {}).forEach(function(cat, i) {
+                datasets.push({ type:'bar', label: cat.startsWith('k8s:') ? 'K8s: '+cat.slice(4) : cat,
+                    data: data.breakdown_by_category[cat],
+                    backgroundColor: CAT_PALETTE[i % CAT_PALETTE.length],
+                    yAxisID:'y1', stack:'cat' });
+            });
+        } else {
+            datasets.push({ type:'bar', label:'Denní náklad (Sloupce)', data:data.actual_daily,
+                backgroundColor:'rgba(75,192,192,0.6)', yAxisID:'y1' });
+        }
+
+        if (data.budget !== null) {
+            datasets.push({ type:'line', label:'Rozpočet', data:data.labels.map(()=>data.budget),
+                borderColor:'rgba(255,0,0,0.7)', borderWidth:2, borderDash:[10,5],
+                pointRadius:0, fill:false, yAxisID:'y' });
+        }
+
+        var annotations = {};
+        (data.anomalies || []).forEach(function(a, i) {
+            if (!a.is_anomaly) return;
+            annotations['a'+i] = { type:'point', xValue:labels[i], yValue:a.actual, yScaleID:'y1',
+                radius:7, backgroundColor:'rgba(220,53,69,0.85)', borderColor:'#fff', borderWidth:2 };
+        });
+
+        var ctx = document.getElementById('chargebackChart').getContext('2d');
+        window.chargebackChartInstance = new Chart(ctx, {
+            type: 'line',
+            data: { labels: labels, datasets: datasets },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
+                plugins: {
+                    annotation: { annotations: annotations },
+                    tooltip: { callbacks: { afterBody: function(ctx) {
+                        var a = (data.anomalies||[])[ctx[0]&&ctx[0].dataIndex];
+                        if (a&&a.is_anomaly) return ['Anomálie','Práh: €'+a.threshold.toFixed(2),'+€'+a.delta.toFixed(2)];
+                    }}}
+                },
+                scales: {
+                    y:  { type:'linear', display:true, position:'left',
+                          title:{ display:true, text:'Kumulativní náklady (€)' }, beginAtZero:true },
+                    y1: { type:'linear', display:true, position:'right',
+                          title:{ display:true, text:'Denní náklady (€)' },
+                          beginAtZero:true, stacked: window._chartMode==='stacked',
+                          grid:{ drawOnChartArea:false } }
+                }
+            }
+        });
+    }
 
     async function renderChargebackChart() {
 
         var monthInput = document.getElementById('monthSelect');
-        
+
         if (!monthInput.value) {
             var now = new Date();
             monthInput.value = now.toISOString().substring(0, 7);
@@ -47,8 +134,8 @@
 
         var targetMonth = monthInput.value;
         var scopeId = "{{ scope_id }}";
-        var queryString = "{{ current_qs | safe }}"; 
-        
+        var queryString = "{{ current_qs | safe }}";
+
         var url = `/api/v1/costs/chargeback?target_month=${targetMonth}`;
         if (scopeId && scopeId.trim() !== "") {
             url += `&scope_id=${scopeId}`;
@@ -58,107 +145,21 @@
         }
 
         try {
-            if (window.chargebackChartInstance) {
-                window.chargebackChartInstance.destroy();
-            }
-
             var response = await fetch(url);
-            
+
             if (!response.ok) {
                 console.error("API Error:", response.status);
                 return;
             }
 
-            
-            
             var data = await response.json();
-            document.getElementById('budgetAmountText').innerText = 
+            window._lastChargebackData = data;
+            document.getElementById('budgetAmountText').innerText =
                 data.budget !== null ? data.budget.toFixed(2) + ' €' : 'Nenastaven';
-            document.getElementById('projectedTotalDisplay').innerText = 
+            document.getElementById('projectedTotalDisplay').innerText =
                 data.projected_total ? data.projected_total.toFixed(2) + ' €' : '0.00 €';
 
-            var labels = data.labels.map(dateStr => {
-                var d = new Date(dateStr);
-                return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
-            });
-            datasets = [
-                        {
-                            type: 'line',
-                            label: 'Průběžná útrata (Skutečnost)',
-                            data: data.actual_cumulative,
-                            borderColor: 'rgba(54, 162, 235, 1)',
-                            backgroundColor: 'rgba(54, 162, 235, 0.2)',
-                            fill: true,
-                            tension: 0.1,
-                            yAxisID: 'y'
-                        },
-                        {
-                            type: 'line',
-                            label: 'Prognóza (Run-Rate)',
-                            data: data.forecast_cumulative,
-                            borderColor: 'rgba(255, 159, 64, 1)',
-                            borderDash: [5, 5], 
-                            fill: false,
-                            tension: 0.1,
-                            yAxisID: 'y'
-                        },
-                        {
-                            type: 'bar',
-                            label: 'Denní náklad (Sloupce)',
-                            data: data.actual_daily,
-                            backgroundColor: 'rgba(75, 192, 192, 0.6)',
-                            yAxisID: 'y1'
-                        }
-                    ]
-            if (data.budget !== null) {
-                var budgetData = data.labels.map(() => data.budget);
-                datasets.push({
-                    type: 'line',
-                    label: 'Rozpočet',
-                    data: budgetData,
-                    borderColor: 'rgba(255, 0, 0, 0.7)',
-                    borderWidth: 2,
-                    borderDash: [10, 5], 
-                    pointRadius: 0,
-                    fill: false,
-                    yAxisID: 'y'
-                });
-            }
-
-
-            var ctx = document.getElementById('chargebackChart').getContext('2d');
-            window.chargebackChartInstance = new Chart(ctx, {
-                type: 'line', 
-                data: {
-                    labels: labels,
-                    datasets: datasets
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    interaction: {
-                        mode: 'index',
-                        intersect: false,
-                    },
-                    scales: {
-                        y: {
-                            type: 'linear',
-                            display: true,
-                            position: 'left',
-                            title: { display: true, text: 'Kumulativní náklady (€)' },
-                            beginAtZero: true
-                        },
-                        y1: {
-                            type: 'linear',
-                            display: true,
-                            position: 'right',
-                            title: { display: true, text: 'Denní náklady (€)' },
-                            beginAtZero: true,
-                            grid: { drawOnChartArea: false } 
-                        }
-                    }
-                }
-            });
+            buildAndRenderChart(data);
 
         } catch (error) {
             console.error("Chyba při načítání chargeback dat:", error);
@@ -168,7 +169,7 @@
     async function promptForBudget() {
         var currentText = document.getElementById('budgetAmountText').innerText;
         var defaultVal = currentText !== "Nenastaven" ? currentText.replace(' €', '') : "";
-        
+
         var newBudgetStr = prompt("Zadejte nový měsíční rozpočet (€):", defaultVal);
 
         if (newBudgetStr !== null && newBudgetStr.trim() !== "") {
@@ -185,7 +186,7 @@
         var targetMonth = document.getElementById('monthSelect').value;
         var scopeId = "{{ scope_id }}";
         if (!scopeId || scopeId.trim() === "") { scopeId = "0"; }
-        
+
         var queryString = "{{ current_qs | safe }}";
         var url = `/api/v1/costs/budget?target_month=${targetMonth}&scope_id=${scopeId}`;
         if (queryString && queryString.trim() !== "") { url += `&${queryString}`; }

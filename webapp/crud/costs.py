@@ -1,34 +1,15 @@
 import calendar
 from datetime import date, timedelta
 from crud import allocations
+import json
+from datetime import date
 
 
-
-def get_daily_costs(cursor, scope_id: int = 0, tags_filter: dict = None,target_date: date = None,
-                    start_date: date = None, end_date: date = None):
-    """
-        Returns daily and accumulative data for given scope and tags for a time window.
-        Based on https://focus.finops.org/use-cases/#forecast-amortized-costs-month-over-month-based-on-historical-trends-2
-        but for daily aggregation and already scoped set of IDs.
-        Uses TimescaleDB gap-filling function to ensure continuity of data.
-    """
+def _build_scope_cte(scope_id: int, tags_filter: dict):
+    """Returns (sql_fragment, params) for the shared SubTree/FilteredEntities CTE."""
     tags_filter = tags_filter or {}
-    params = []
-
-    # Backwards compability to get the current month
-    if target_date and not start_date:
-        start_date = target_date.replace(day=1)
-        _, last_day = calendar.monthrange(start_date.year, start_date.month)
-        end_date = start_date + timedelta(days=last_day)
-        
-    # Fallback fot the actual month
-    if not start_date or not end_date:
-        start_date = date.today().replace(day=1)
-        _, last_day = calendar.monthrange(start_date.year, start_date.month)
-        end_date = start_date + timedelta(days=last_day)
-
-    # Scope
-    base_sql = """
+    params = [scope_id, scope_id]
+    sql = """
         WITH RECURSIVE SubTree AS (
             SELECT Id, ParentId, Tags FROM Entities WHERE Id = %s
             UNION ALL
@@ -37,19 +18,37 @@ def get_daily_costs(cursor, scope_id: int = 0, tags_filter: dict = None,target_d
         ),
         BaseData AS (
             SELECT Id, Tags FROM SubTree WHERE Id != %s
-        )
-    """
-    params.extend([scope_id, scope_id])
-
-    # Filter by tags
-    filter_sql = " , FilteredEntities AS ( SELECT Id FROM BaseData WHERE 1=1 "
+        ),
+        FilteredEntities AS ( SELECT Id FROM BaseData WHERE 1=1"""
     for key, value in tags_filter.items():
-        filter_sql += " AND Tags->>%s = %s"
+        sql += " AND Tags->>%s = %s"
         params.extend([key, value])
-    filter_sql += " )"
+    sql += ")"
+    return sql, params
 
-    # Join on costs, start on the first day of given month.
-    query = base_sql + filter_sql + """
+
+def get_daily_costs(cursor, scope_id: int = 0, tags_filter: dict = None, target_date: date = None,
+                    start_date: date = None, end_date: date = None):
+    """
+        Returns daily and accumulative data for given scope and tags for a time window.
+        Based on https://focus.finops.org/use-cases/#forecast-amortized-costs-month-over-month-based-on-historical-trends-2
+        but for daily aggregation and already scoped set of IDs.
+        Uses TimescaleDB gap-filling function to ensure continuity of data.
+    """
+    # Backwards compability to get the current month
+    if target_date and not start_date:
+        start_date = target_date.replace(day=1)
+        _, last_day = calendar.monthrange(start_date.year, start_date.month)
+        end_date = start_date + timedelta(days=last_day)
+        
+    # Fallback for the actual month
+    if not start_date or not end_date:
+        start_date = date.today().replace(day=1)
+        _, last_day = calendar.monthrange(start_date.year, start_date.month)
+        end_date = start_date + timedelta(days=last_day)
+
+    cte_sql, params = _build_scope_cte(scope_id, tags_filter)
+    query = cte_sql + """
         , Gapfilled AS(
             SELECT 
             time_bucket_gapfill(
@@ -71,15 +70,36 @@ def get_daily_costs(cursor, scope_id: int = 0, tags_filter: dict = None,target_d
         FROM Gapfilled
         ORDER BY cost_date ASC;
     """
-    
     params.extend([start_date, end_date, start_date, end_date])
-
     cursor.execute(query, params)
+    return [{"date": r[0].isoformat(), "cost": float(r[1])} for r in cursor.fetchall()]
 
-    return[{"date": r[0].isoformat(), "cost": float(r[1])} for r in cursor.fetchall()]
 
-import json
-from datetime import date
+def get_daily_costs_by_category(cursor, scope_id: int = 0, tags_filter: dict = None,
+                                start_date: date = None, end_date: date = None):
+    """Daily costs grouped by ServiceCategory. No gap-filling."""
+    if not start_date or not end_date:
+        start_date = date.today().replace(day=1)
+        _, last_day = calendar.monthrange(start_date.year, start_date.month)
+        end_date = start_date + timedelta(days=last_day)
+
+    cte_sql, params = _build_scope_cte(scope_id, tags_filter)
+    query = cte_sql + """
+        SELECT c.ChargePeriodStart::date,
+               COALESCE(c.ServiceCategory, 'Other'),
+               SUM(c.BilledCost)
+        FROM Costs c
+        JOIN FilteredEntities fe ON c.EntityId = fe.Id
+        WHERE c.ChargePeriodStart >= %s::timestamptz
+          AND c.ChargePeriodStart < %s::timestamptz
+        GROUP BY 1, 2 ORDER BY 1, 2;
+    """
+    params.extend([start_date, end_date])
+    cursor.execute(query, params)
+    return [{"date": r[0].isoformat(), "category": r[1], "cost": float(r[2])}
+            for r in cursor.fetchall()]
+
+
 
 def get_budget(cursor, scope_id: int, tags_filter: dict, target_month: date) -> float:
     """Returns the newest existing budget for given scope and tags."""
@@ -209,3 +229,22 @@ def save_anomalies(cursor, scope_id: int, tags_filter: dict, anomalies_data: lis
                 Delta = EXCLUDED.Delta,
                 DetectedAt = CURRENT_TIMESTAMP;
         """, (scope_id, tags_json, anomaly["date"], anomaly["actual"], anomaly["predicted"], anomaly["threshold"], anomaly["delta"]))
+
+
+def get_anomalies_for_month(cursor, scope_id: int, tags_filter: dict,
+                            start_date: date, end_date: date) -> dict:
+    """Returns persisted CostAnomalies for the given period."""
+    tags_json = json.dumps(tags_filter) if tags_filter else '{}'
+    scope_id = scope_id if scope_id is not None else 0
+    cursor.execute("""
+        SELECT AnomalyDate, ActualCost, PredictedCost, UpperThreshold, Delta
+        FROM CostAnomalies
+        WHERE ScopeId = %s AND Tags::jsonb = %s::jsonb
+          AND AnomalyDate >= %s AND AnomalyDate < %s
+        ORDER BY AnomalyDate ASC;
+    """, (scope_id, tags_json, start_date, end_date))
+    return {
+        row[0].isoformat(): {"actual": float(row[1]), "predicted": float(row[2]),
+                              "threshold": float(row[3]), "delta": float(row[4])}
+        for row in cursor.fetchall()
+    }

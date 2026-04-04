@@ -18,8 +18,28 @@ def tags_match(current_tags: dict, rule_tags: dict) -> bool:
             return False
     return True
 
+
+def _make_anomaly_entry(date_str: str, daily_cost: float, thresh_data) -> dict:
+    """Normalises anomaly threshold data into a unified anomaly object."""
+    if isinstance(thresh_data, dict):          # from CostAnomalies DB record
+        is_anom = thresh_data["actual"] > thresh_data["threshold"] and thresh_data["actual"] > 10.0
+        return {"date": date_str, "is_anomaly": is_anom,
+                "actual": round(thresh_data["actual"], 2),
+                "threshold": round(thresh_data["threshold"], 2),
+                "delta": round(thresh_data["delta"], 2)}
+    elif thresh_data is not None:              # scalar upper-bound from AutoETS fitted values
+        thresh_f = float(thresh_data)
+        is_anom = daily_cost > thresh_f and daily_cost > 10.0
+        return {"date": date_str, "is_anomaly": is_anom,
+                "actual": round(daily_cost, 2),
+                "threshold": round(thresh_f, 2),
+                "delta": round(max(0.0, daily_cost - thresh_f), 2)}
+    return {"date": date_str, "is_anomaly": False,
+            "actual": round(daily_cost, 2), "threshold": None, "delta": 0.0}
+
 def get_aggregated_daily_costs(cursor, scope_id: int, active_tags: dict,
                                 start_date: date = None, end_date: date = None):
+    """Aggregates daily costs for a given scope and tags."""
     raw_data = costs_crud.get_daily_costs(cursor, scope_id, active_tags,
                                            start_date=start_date, end_date=end_date)
     cost_dict = {row["date"]: row["cost"] for row in raw_data}
@@ -99,9 +119,40 @@ def get_aggregated_daily_costs(cursor, scope_id: int, active_tags: dict,
             cost_dict[date_str] = daily_total
 
     return cost_dict
-            
-    
-    
+
+
+def get_aggregated_daily_costs_by_category(
+    cursor, scope_id: int, active_tags: dict,
+    start_date: date = None, end_date: date = None
+) -> dict:
+    """Cloud costs by ServiceCategory + each matched K8s namespace as 'k8s:<name>'.
+    Allocation-rule adjustments stay in the total only.
+    """
+    cat_dict: dict[str, dict[str, float]] = {}
+    for row in costs_crud.get_daily_costs_by_category(cursor, scope_id, active_tags,
+                                                       start_date=start_date, end_date=end_date):
+        d = cat_dict.setdefault(row["category"], {})
+        d[row["date"]] = d.get(row["date"], 0.0) + row["cost"]
+
+    if active_tags:
+        cluster_map: dict[int, list[str]] = {}
+        for ns in costs_crud.get_namespaces_for_tags(cursor, active_tags):
+            cluster_map.setdefault(ns[1], []).append(ns[2])
+
+        for cluster_id, ns_names in cluster_map.items():
+            cluster_cost_dict = {r["date"]: r["cost"] for r in
+                                 costs_crud.get_daily_costs(cursor, cluster_id, {},
+                                                            start_date=start_date, end_date=end_date)}
+            ns_costs = kube_chargeback.get_daily_namespace_allocation(
+                cursor, cluster_id, base_date=None,
+                daily_cluster_costs=cluster_cost_dict, return_ui_format=False,
+                start_date=start_date, end_date=end_date)
+            for ns_name in ns_names:
+                if ns_name in ns_costs:
+                    cat_dict.setdefault(f"k8s:{ns_name}", {}).update(ns_costs[ns_name])
+
+    return cat_dict
+
 
 def _prepare_dates_and_cutoff(cursor, target_month: str = None):
     """Prepare date interval and actual data cutoff for the given month"""
@@ -138,10 +189,13 @@ def _prepare_dates_and_cutoff(cursor, target_month: str = None):
         
     return base_date, start_date, end_date, num_days, cutoff_date_obj, cutoff_day
 
-def _build_response_payload(base_date, num_days, cutoff_day, cost_dict, future_forecasts, budget_amount, anomaly_thresholds=None, projected_total=None):
+def _build_response_payload(base_date, num_days, cutoff_day, cost_dict, future_forecasts,
+                             budget_amount, anomaly_thresholds=None, projected_total=None,
+                             category_dict=None):
     """Build the response payload for the given month"""
-    if anomaly_thresholds is None:
-        anomaly_thresholds = {}
+    anomaly_thresholds = anomaly_thresholds or {}
+    category_dict = category_dict or {}
+    category_arrays: dict[str, list] = {cat: [] for cat in category_dict}
 
     labels, actual_daily, actual_cumulative, forecast_cumulative, anomalies = [], [], [], [], []
     cumulative_sum, actual_cumulative_sum = 0, 0
@@ -150,32 +204,31 @@ def _build_response_payload(base_date, num_days, cutoff_day, cost_dict, future_f
         current_date = date(base_date.year, base_date.month, day)
         date_str = current_date.isoformat()
         labels.append(date_str)
+        for cat, arr in category_arrays.items():
+            arr.append(round(category_dict[cat].get(date_str, 0.0), 2) if day <= cutoff_day else None)
         # If the day is within the actual data range, use actual data
         if day <= cutoff_day:
             daily_cost = cost_dict.get(date_str, 0.0)
             actual_cumulative_sum += daily_cost
             cumulative_sum += daily_cost
-            
             actual_daily.append(round(daily_cost, 2))
             actual_cumulative.append(round(actual_cumulative_sum, 2))
-            forecast_cumulative.append(None) 
-            
-            thresh = anomaly_thresholds.get(date_str, float('inf'))
-            anomalies.append(daily_cost > thresh and daily_cost > 10.0)
+            forecast_cumulative.append(None)
+            anomalies.append(_make_anomaly_entry(date_str, daily_cost,
+                                                 anomaly_thresholds.get(date_str)))
         # If the day is beyond the actual data range, use forecast data
         else:
             # If the forecast_cumulative is empty, fill it with the actual cumulative sum
             if cutoff_day > 0 and len(actual_cumulative) == cutoff_day and forecast_cumulative[-1] is None:
                 forecast_cumulative[cutoff_day - 1] = round(cumulative_sum, 2)
-
             pred_val = float(max(0.0, future_forecasts.get(date_str, 0.0)))
             cumulative_sum += pred_val
-            
             actual_daily.append(None)
             actual_cumulative.append(None)
             forecast_cumulative.append(round(cumulative_sum, 2))
-            anomalies.append(False)
-       
+            anomalies.append({"date": date_str, "is_anomaly": False,
+                               "actual": None, "threshold": None, "delta": 0.0})
+
     return {
         "month": f"{base_date.year}-{base_date.month:02d}",
         "projected_total": projected_total if projected_total is not None else round(cumulative_sum, 2),
@@ -184,8 +237,10 @@ def _build_response_payload(base_date, num_days, cutoff_day, cost_dict, future_f
         "actual_cumulative": actual_cumulative,
         "forecast_cumulative": forecast_cumulative,
         "anomalies": anomalies,
-        "budget": budget_amount
+        "budget": budget_amount,
+        "breakdown_by_category": category_arrays,
     }
+
 
 def get_chargeback_dashboard_data(cursor, scope_id: int, active_tags: dict, target_month: str = None) -> dict:
     """
@@ -195,14 +250,15 @@ def get_chargeback_dashboard_data(cursor, scope_id: int, active_tags: dict, targ
     base_date, start_date, end_date, num_days, cutoff_date_obj, cutoff_day = _prepare_dates_and_cutoff(cursor, target_month)
     
     latest = costs_crud.get_latest_forecast(cursor, scope_id, active_tags, base_date)
-    print(latest)
-    budget_amount = costs_crud.get_budget(cursor, scope_id, active_tags, base_date)
-    
+
     if not latest or not latest.get('daily_forecasts'):
         return calculate_chargeback_forecast(cursor, scope_id, active_tags, target_month)
         
+    budget_amount = costs_crud.get_budget(cursor, scope_id, active_tags, base_date)
     cost_dict = get_aggregated_daily_costs(cursor, scope_id, active_tags, start_date=start_date, end_date=end_date)
-    
+    anomaly_thresholds = costs_crud.get_anomalies_for_month(cursor, scope_id, active_tags, start_date, end_date)
+    category_dict = get_aggregated_daily_costs_by_category(cursor, scope_id, active_tags, start_date=start_date, end_date=end_date)
+
     return _build_response_payload(
         base_date=base_date,
         num_days=num_days,
@@ -210,10 +266,10 @@ def get_chargeback_dashboard_data(cursor, scope_id: int, active_tags: dict, targ
         cost_dict=cost_dict,
         future_forecasts=latest.get('daily_forecasts', {}),
         budget_amount=budget_amount,
-        projected_total=latest.get("projected_amount")
+        projected_total=latest.get("projected_amount"),
+        anomaly_thresholds=anomaly_thresholds,
+        category_dict=category_dict
     )
-        
-
 
 def calculate_chargeback_forecast(cursor, scope_id: int, active_tags: dict, target_month: str = None) -> dict:
     """
@@ -225,6 +281,7 @@ def calculate_chargeback_forecast(cursor, scope_id: int, active_tags: dict, targ
     # Get history - 35 days before the month + the target month
     history_start = start_date - timedelta(days=35)
     cost_dict = get_aggregated_daily_costs(cursor, scope_id, active_tags, start_date=history_start, end_date=end_date)
+    category_dict = get_aggregated_daily_costs_by_category(cursor, scope_id, active_tags, start_date=start_date, end_date=end_date)
 
     # Transform to DataFrame for the model,
     # fill gaps for all days from history_start to cutoff_date.
@@ -317,6 +374,7 @@ def calculate_chargeback_forecast(cursor, scope_id: int, active_tags: dict, targ
         cost_dict=cost_dict,
         future_forecasts=future_forecasts,
         budget_amount=budget_amount,
-        anomaly_thresholds=anomaly_thresholds
+        anomaly_thresholds=anomaly_thresholds,
+        category_dict=category_dict
     )
 
