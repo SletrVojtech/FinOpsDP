@@ -12,7 +12,7 @@ class CatalogProcessor(BaseProcessor):
 
     def process(self, envelope):
         payload_data = envelope.payload
-        
+
         hardware_records = payload_data.get('hardware_records', [])
         pricing_records = payload_data.get('pricing_records', [])
 
@@ -31,8 +31,9 @@ class CatalogProcessor(BaseProcessor):
         """Bulk-upsert of hardware specifications."""
         query = """
             INSERT INTO hardwarecatalog AS target (
-                cloud, instance_type, instance_family, vcpu, memory_gb, 
-                baseline_iops, baseline_throughput_mbps, network_performance
+                cloud, instance_type, instance_family, vcpu, memory_gb,
+                baseline_iops, baseline_throughput_mbps, network_performance,
+                architecture, is_gpu, is_confidential, has_local_storage, supports_premium_storage
             ) VALUES %s
             ON CONFLICT (cloud, instance_type) DO UPDATE SET
                 instance_family = EXCLUDED.instance_family,
@@ -41,26 +42,41 @@ class CatalogProcessor(BaseProcessor):
                 baseline_iops = EXCLUDED.baseline_iops,
                 baseline_throughput_mbps = EXCLUDED.baseline_throughput_mbps,
                 network_performance = EXCLUDED.network_performance,
+                architecture = EXCLUDED.architecture,
+                is_gpu = EXCLUDED.is_gpu,
+                is_confidential = EXCLUDED.is_confidential,
+                has_local_storage = EXCLUDED.has_local_storage,
+                supports_premium_storage = EXCLUDED.supports_premium_storage,
                 updated_at = CURRENT_TIMESTAMP
-            WHERE target.vcpu != EXCLUDED.vcpu 
+            WHERE target.vcpu != EXCLUDED.vcpu
                OR target.memory_gb != EXCLUDED.memory_gb
-               OR target.baseline_iops IS DISTINCT FROM EXCLUDED.baseline_iops;
+               OR target.baseline_iops IS DISTINCT FROM EXCLUDED.baseline_iops
+               OR target.architecture IS DISTINCT FROM EXCLUDED.architecture
+               OR target.is_gpu != EXCLUDED.is_gpu
+               OR target.is_confidential != EXCLUDED.is_confidential
+               OR target.has_local_storage != EXCLUDED.has_local_storage
+               OR target.supports_premium_storage != EXCLUDED.supports_premium_storage;
         """
-        
+
         values = [
             (
-                r['cloud'], 
-                r['instance_type'].lower(), 
-                r.get('instance_family').lower(), 
-                r['vcpu'], 
-                r['memory_gb'], 
-                r.get('baseline_iops'), 
-                r.get('baseline_throughput_mbps'), 
-                r.get('network_performance')
-            ) 
+                r['cloud'],
+                r['instance_type'].lower(),
+                r.get('instance_family', '').lower(),
+                r['vcpu'],
+                r['memory_gb'],
+                r.get('baseline_iops'),
+                r.get('baseline_throughput_mbps'),
+                r.get('network_performance'),
+                r.get('architecture', 'x86_64'),
+                bool(r.get('is_gpu', False)),
+                bool(r.get('is_confidential', False)),
+                bool(r.get('has_local_storage', False)),
+                bool(r.get('supports_premium_storage', False)),
+            )
             for r in hardware_records
         ]
-        
+
         execute_values(self.cursor, query, values)
 
 
@@ -75,16 +91,16 @@ class CatalogProcessor(BaseProcessor):
                 updated_at = CURRENT_TIMESTAMP
             WHERE target.hourly_price_usd != EXCLUDED.hourly_price_usd;
         """
-        
+
         values = [
             (
-                r['cloud'].lower(), 
-                r['instance_type'].lower(), 
-                r['region'].lower(), 
-                r['os'].lower(), 
+                r['cloud'].lower(),
+                r['instance_type'].lower(),
+                r['region'].lower(),
+                r['os'].lower(),
                 r['hourly_price_usd']
-            ) 
+            )
             for r in pricing_records
         ]
-        
+
         execute_values(self.cursor, query, values, page_size=5000)

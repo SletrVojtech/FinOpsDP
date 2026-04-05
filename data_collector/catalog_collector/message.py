@@ -12,6 +12,12 @@ class HardwareRecord(BaseModel):
     baseline_iops: Optional[int]
     baseline_throughput_mbps: Optional[float]
     network_performance: Optional[str] = None
+    # Instance class constraints
+    architecture: str = 'x86_64'               # 'x86_64' or 'arm64'
+    is_gpu: bool = False
+    is_confidential: bool = False               # Confidential Computing
+    has_local_storage: bool = False             # Local NVMe / SSD
+    supports_premium_storage: bool = False      # Premium IO
 
 class PricingRecord(BaseModel):
     cloud: str
