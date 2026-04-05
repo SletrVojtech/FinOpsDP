@@ -1,13 +1,23 @@
 from typing import List, Dict, Any
 from crud import downsizing as crud_downsizing
 
-def evaluate_downsizing(db_cursor, resource_id: int, analysis_days: int = 30, 
-                        target_cpu_util: float = 60.0, target_ram_util: float = 80.0,
-                        excluded_filters: List[str] = None) -> Dict[str, Any]:
+
+def evaluate_downsizing(
+    db_cursor,
+    resource_id: int,
+    analysis_days: int = 30,
+    target_cpu_util: float = 60.0,
+    target_ram_util: float = 80.0,
+    excluded_filters: List[str] = None,
+) -> Dict[str, Any]:
     """
-    Returns a rightsizing recommendation for given instance.
+    Returns a rightsizing recommendation for the given instance.
+
+    Class constraints (architecture, GPU, confidential, local storage) are
+    enforced as hard filters — candidates that would break instance compatibility
+    are never returned. Premium storage is a soft ordering hint only.
     """
-    
+
     if excluded_filters is None:
         excluded_filters = []
     # Get actual instance metadata
@@ -17,11 +27,11 @@ def evaluate_downsizing(db_cursor, resource_id: int, analysis_days: int = 30,
 
     # Get current metrics
     tel = crud_downsizing.get_telemetry(db_cursor, resource_id, analysis_days)
-    
+
     # Sum the in/out metrics (slightly pesimistic)
     iops_max = (tel["disk_read_max"] or 0) + (tel["disk_write_max"] or 0)
     net_max_bps = (tel["net_in_max"] or 0) + (tel["net_out_max"] or 0)
-    net_max_mbps = net_max_bps / 1000000.0
+    net_max_mbps = net_max_bps / 1_000_000.0
 
     # Add a buffer to the measured needs, don't change the limits if metrics are missing
     if tel["cpu_p95"] is not None:
@@ -34,7 +44,14 @@ def evaluate_downsizing(db_cursor, resource_id: int, analysis_days: int = 30,
     else:
         target_ram = current["memory_gb"]
 
-    # Filter instances by pattern
+    # Get class constraints from current instance
+    constraints = {
+        "architecture":     current["architecture"],
+        "is_gpu":           current["is_gpu"],
+        "is_confidential":  current["is_confidential"],
+        "has_local_storage": current["has_local_storage"],
+    }
+
     sql_patterns = [f.replace("*", "%") for f in excluded_filters]
 
     # Find new candidates
@@ -47,44 +64,67 @@ def evaluate_downsizing(db_cursor, resource_id: int, analysis_days: int = 30,
         req_ram=max(1.0, target_ram),
         req_iops=float(iops_max),
         req_net_mbps=float(net_max_mbps),
-        sql_like_patterns=sql_patterns
+        sql_like_patterns=sql_patterns,
+        # Hard constraints
+        architecture=current["architecture"],
+        is_gpu=current["is_gpu"],
+        is_confidential=current["is_confidential"],
+        has_local_storage=current["has_local_storage"],
+        # Soft ordering hint
+        current_supports_premium=current["supports_premium_storage"],
     )
 
     if not candidates:
-        return {"status": "success", "action": "none", "message": "No smaller instances fit the target workloads."}
-
-    # Calculate the price difference
-    actual_daily_cost = crud_downsizing.get_actual_daily_cost(db_cursor, resource_id, analysis_days)
-    current_catalog_price = crud_downsizing.get_catalog_hourly_price(
-        db_cursor, current["provider"], current["region"], current["os"], current["instance_type"]
-    )
-    
-    # Skip if the pricing catalog is incomplete
-    if not current_catalog_price or current_catalog_price <= 0:
-        best_candidate = candidates[0] # Get the cheapest one
         return {
-            "status": "success", 
+            "status": "success",
+            "action": "none",
+            "message": "No smaller instances fit the target workloads.",
+            "constraints_applied": constraints,
+        }
+
+    # Get current costs
+    actual_daily_cost = crud_downsizing.get_actual_daily_cost(
+        db_cursor, resource_id, analysis_days
+    )
+    current_catalog_price = crud_downsizing.get_catalog_hourly_price(
+        db_cursor, current["provider"], current["region"],
+        current["os"], current["instance_type"],
+    )
+
+    # No catalog price — return best candidate without financials
+    if not current_catalog_price or current_catalog_price <= 0:
+        best_candidate = candidates[0]
+        return {
+            "status": "success",
             "action": "downsize_recommended",
             "current_instance": current["instance_type"],
             "recommended_instance": best_candidate["instance_type"],
-            "warning": "Cost metrics unavailable for ratio calculation."
+            "constraints_applied": constraints,
+            "warning": "Cost metrics unavailable for ratio calculation.",
         }
 
-    # Choose the cheapest one
+    # Pick the cheapest candidate that is cheaper than current
     best_candidate = None
     best_savings_ratio = 0.0
 
     for cand in candidates:
         if cand["hourly_price_usd"] < current_catalog_price:
             best_candidate = cand
-            best_savings_ratio = (current_catalog_price - cand["hourly_price_usd"]) / current_catalog_price
-            break 
+            best_savings_ratio = (
+                (current_catalog_price - cand["hourly_price_usd"]) / current_catalog_price
+            )
+            break
 
     if not best_candidate:
-         return {"status": "success", "action": "none", "message": "Current instance is already the most cost-effective option."}
+        return {
+            "status": "success",
+            "action": "none",
+            "message": "Current instance is already the most cost-effective option.",
+            "constraints_applied": constraints,
+        }
 
-    # Ecaluate new price - ratio from the difference of listed and paid price
-    projected_daily_cost = actual_daily_cost * float((1 - best_savings_ratio))
+    # Calculate financials
+    projected_daily_cost = actual_daily_cost * float(1 - best_savings_ratio)
     monthly_savings_usd = (actual_daily_cost - projected_daily_cost) * 30
 
     return {
@@ -92,16 +132,17 @@ def evaluate_downsizing(db_cursor, resource_id: int, analysis_days: int = 30,
         "action": "downsize_recommended",
         "current_instance": current["instance_type"],
         "recommended_instance": best_candidate["instance_type"],
+        "constraints_applied": constraints,
         "financials": {
             "current_actual_daily_cost_usd": round(actual_daily_cost, 2),
             "projected_daily_cost_usd": round(projected_daily_cost, 2),
             "estimated_monthly_savings_usd": round(monthly_savings_usd, 2),
-            "savings_percentage": round(best_savings_ratio * 100, 2)
+            "savings_percentage": round(best_savings_ratio * 100, 2),
         },
         "telemetry_used": {
             "cpu_p95": round(tel["cpu_p95"], 2) if tel["cpu_p95"] else None,
             "ram_max": tel["ram_max"],
             "target_vcpu": round(target_vcpu, 2),
-            "target_ram": round(target_ram, 2)
-        }
+            "target_ram": round(target_ram, 2),
+        },
     }

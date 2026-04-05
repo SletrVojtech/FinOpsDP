@@ -100,6 +100,37 @@ def get_daily_costs_by_category(cursor, scope_id: int = 0, tags_filter: dict = N
             for r in cursor.fetchall()]
 
 
+def get_daily_costs_by_tag_key(cursor, scope_id: int = 0, tags_filter: dict = None,
+                               tag_key: str = None,
+                               start_date: date = None, end_date: date = None):
+    """Daily costs grouped by values of a given tag key.
+    Resources without the tag are grouped as 'Unrecognized'.
+    """
+    if not start_date or not end_date:
+        start_date = date.today().replace(day=1)
+        _, last_day = calendar.monthrange(start_date.year, start_date.month)
+        end_date = start_date + timedelta(days=last_day)
+
+    if not tag_key:
+        return []
+
+    cte_sql, params = _build_scope_cte(scope_id, tags_filter)
+    query = cte_sql + """
+        SELECT c.ChargePeriodStart::date,
+               COALESCE(e.Tags->>%s, 'Unrecognized'),
+               SUM(c.BilledCost)
+        FROM Costs c
+        JOIN Entities e ON c.EntityId = e.Id
+        JOIN FilteredEntities fe ON e.Id = fe.Id
+        WHERE c.ChargePeriodStart >= %s::timestamptz
+          AND c.ChargePeriodStart < %s::timestamptz
+        GROUP BY 1, 2 ORDER BY 1, 2;
+    """
+    params.extend([tag_key, start_date, end_date])
+    cursor.execute(query, params)
+    return [{"date": r[0].isoformat(), "tag_value": r[1], "cost": float(r[2])}
+            for r in cursor.fetchall()]
+
 
 def get_budget(cursor, scope_id: int, tags_filter: dict, target_month: date) -> float:
     """Returns the newest existing budget for given scope and tags."""
