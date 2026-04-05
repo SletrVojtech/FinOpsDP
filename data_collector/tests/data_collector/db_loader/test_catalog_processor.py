@@ -40,8 +40,8 @@ def test_catalog_processor_hardware_only(mock_db):
     values_list = args[2]
     
     assert len(values_list) == 1
-    # cloud, instance_type.lower(), instance_family.lower(), vcpu, memory_gb, iops, throughput, perf 
-    assert values_list[0] == ('AWS', 't2.micro', 't2', 1, 1.0, 100, 50.0, 'Low')
+    # cloud, instance_type.lower(), instance_family.lower(), vcpu, memory_gb, iops, throughput, perf, arch, gpu, confidential, local, premium
+    assert values_list[0] == ('AWS', 't2.micro', 't2', 1, 1.0, 100, 50.0, 'Low', 'x86_64', False, False, False, False)
 
 def test_catalog_processor_pricing_only(mock_db):
     # Arrange

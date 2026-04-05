@@ -3,7 +3,8 @@ from crud.downsizing import get_instance_metadata, get_telemetry, get_catalog_ho
 from unittest.mock import MagicMock
 
 def test_get_instance_metadata(mock_cursor):
-    mock_cursor.fetchone.return_value = ("aws", "us-east-1", "linux", "t3.medium", 2, 4.0)
+    # 11 columns: provider, region, os, type, vcpu, mem, arch, gpu, confidential, local, premium
+    mock_cursor.fetchone.return_value = ("aws", "us-east-1", "linux", "t3.medium", 2, 4.0, "x86_64", False, False, False, True)
     
     metadata = get_instance_metadata(mock_cursor, 123)
     

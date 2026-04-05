@@ -17,7 +17,9 @@ def test_evaluate_downsizing_no_candidates(mocker):
     
     # Current instance: 4 vCPU, 16 GB RAM
     mocker.patch("crud.downsizing.get_instance_metadata", return_value={
-        "provider": "aws", "region": "eu-central-1", "os": "linux", "instance_type": "t3.xlarge", "vcpu": 4, "memory_gb": 16
+        "provider": "aws", "region": "eu-central-1", "os": "linux", "instance_type": "t3.xlarge", 
+        "vcpu": 4, "memory_gb": 16, "architecture": "x86_64", "is_gpu": False, 
+        "is_confidential": False, "has_local_storage": False, "supports_premium_storage": True
     })
     
     # Telemetry: 10% CPU, 20% RAM (should downsize)
@@ -38,7 +40,9 @@ def test_evaluate_downsizing_recommendation(mocker):
     
     # Current: 4 vCPU, 16 GB, $1.0 hourly catalog price
     mocker.patch("crud.downsizing.get_instance_metadata", return_value={
-        "provider": "aws", "region": "eu-central-1", "os": "linux", "instance_type": "t3.xlarge", "vcpu": 4, "memory_gb": 16
+        "provider": "aws", "region": "eu-central-1", "os": "linux", "instance_type": "t3.xlarge", 
+        "vcpu": 4, "memory_gb": 16, "architecture": "x86_64", "is_gpu": False, 
+        "is_confidential": False, "has_local_storage": False, "supports_premium_storage": True
     })
     
     mocker.patch("crud.downsizing.get_telemetry", return_value={
