@@ -1,11 +1,13 @@
-# web_app/services/cost_service.py
 import calendar
+import logging
 from datetime import date, timedelta, datetime
 import pandas as pd
 from statsforecast import StatsForecast
 from statsforecast.models import AutoETS
 from crud import costs as costs_crud, allocations
 from services import kube_chargeback
+
+logger = logging.getLogger(__name__)
 
 
 
@@ -366,18 +368,27 @@ def calculate_chargeback_forecast(cursor, scope_id: int, active_tags: dict,
         df['ds'] = pd.to_datetime(df['ds'])
 
     # Get StatsForecast and predictions
-    sf = StatsForecast(
-        models=[AutoETS(season_length=7)],
-        freq='D'
-    )
-    
+    future_forecasts = {}
+    ml_success = False
+    forecast_df = pd.DataFrame()
+    fitted_df = pd.DataFrame()
+
     # Predict enough days to reach the end_date of the target month
-    days_to_predict = (end_date - cutoff_date_obj).days if cost_dict else num_days
-    
+    days_to_predict = (end_date - cutoff_date_obj).days if (cost_dict and cutoff_date_obj) else num_days
+
     try:
+        sf = StatsForecast(
+
+            models=[AutoETS(season_length=7)],
+            freq='D'
+        )
+
         if df.empty:
-            raise ValueError("No data to train on")
-            
+            raise ValueError("No data")
+        sf.fit(df=df)
+        
+        ml_success = True
+        
         # Always predict at least 1 day to force sf.forecast to cache fitted values
         h_val = max(1, days_to_predict)
         forecast_df = sf.forecast(df=df, h=h_val, level=[95], fitted=True)
@@ -387,18 +398,20 @@ def calculate_chargeback_forecast(cursor, scope_id: int, active_tags: dict,
         if days_to_predict <= 0:
             forecast_df = pd.DataFrame()
     except Exception as e:
-        # Fallback in case of StatsForecast error (tiny datasets < 14 days)
+        # Log the failure for StatsForecast
+        logger.error("StatsForecast failed, using SMA fallback: %s", e, exc_info=True)
+        ml_success = False
         forecast_df = pd.DataFrame()
         fitted_df = pd.DataFrame()
         
         # Manually create flat future forecasts as fallback
-        future_forecasts = {}
         if not df.empty and days_to_predict > 0:
             run_rate = df['y'].tail(7).mean()
             fallback_date = cutoff_date_obj + timedelta(days=1)
             for _ in range(days_to_predict):
                 future_forecasts[fallback_date.strftime("%Y-%m-%d")] = run_rate
                 fallback_date += timedelta(days=1)
+
 
     # Create dict mapping for upper bound of prediction interval
     anomaly_thresholds = {}
@@ -411,8 +424,8 @@ def calculate_chargeback_forecast(cursor, scope_id: int, active_tags: dict,
 
     # Map forecast values { ds_str: forecast_y }
     # Only map from forecast_df if no fallback was used
-    if 'future_forecasts' not in locals() or not future_forecasts:
-        future_forecasts = {}
+    if not future_forecasts:
+
         if not forecast_df.empty:
             pred_cols = [c for c in forecast_df.columns if 'AutoETS' in c and not '-' in c]
             if pred_cols:

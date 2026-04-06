@@ -153,14 +153,14 @@ def get_dynamic_items(cursor, scope_id: int = None, tags_filter: dict = None):
     params.append(scope_id)
     # Check if metrics are enabled and if the entity is a direct child of the scope
     if getattr(AppConfig, 'ENABLE_METRICS', False):
-        has_metrics_sql = f"""
+        has_metrics_sql = """
             CASE 
-                WHEN u.ParentId = {scope_id} THEN 
+                WHEN u.ParentId = %s THEN 
                     EXISTS(SELECT 1 FROM Metrics m WHERE m.EntityId = u.Id AND m.Timestamp >= NOW() - INTERVAL '24 HOURS')
                 ELSE False 
             END
         """
-        
+        params.append(scope_id)
     else:
         has_metrics_sql = "False"
     # finalize data with has_children, has_metrics

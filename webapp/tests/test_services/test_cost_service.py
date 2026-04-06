@@ -1,7 +1,12 @@
+import pandas as pd
 import pytest
-from datetime import date, datetime
-from services.cost_service import tags_match, _make_anomaly_entry, _prepare_dates_and_cutoff
+from datetime import date, datetime, timedelta
+from services.cost_service import (
+    tags_match, _make_anomaly_entry, _prepare_dates_and_cutoff, 
+    get_aggregated_daily_costs
+)
 from unittest.mock import MagicMock
+
 
 def test_tags_match():
     """Test tags_match logic for rule attribution."""
@@ -60,7 +65,7 @@ def test_prepare_dates_and_cutoff(mocker):
     # Mocking costs_crud.get_max_date
     mock_get_max_date = mocker.patch("crud.costs.get_max_date")
     
-    # CASE 1: With actual data
+    # With actual data
     mock_get_max_date.return_value = [datetime(2026, 3, 15)]
     base, start, end, num_days, cutoff_obj, cutoff_day = _prepare_dates_and_cutoff(mock_cursor, "2026-03")
     
@@ -69,6 +74,83 @@ def test_prepare_dates_and_cutoff(mocker):
     assert end == date(2026, 4, 1)
     assert num_days == 31
     # 2026-03-15 is the data max, but SAFE_DAYS_TO_SUBTRACT is 3. 
-    # Logic: if cutoff_obj > safe_max_date, then use safe_max_date.
     assert isinstance(cutoff_obj, date)
     assert 0 <= cutoff_day <= 31
+
+def test_get_aggregated_daily_costs_with_allocation(mocker):
+    """Verify that allocation rules are applied to base costs."""
+    cursor = MagicMock()
+    
+    # Base costs: $100 on 2024-01-01
+    mocker.patch("crud.costs.get_daily_costs", return_value=[{"date": "2024-01-01", "cost": 100.0}])
+    mocker.patch("crud.costs.get_namespaces_for_tags", return_value=[])
+    
+    # Setup one allocation rule: 50% from 'other' to our scope
+    mocker.patch("crud.allocations.get_allocation_rules", return_value=[
+        {"id": 1, "source_tags": {"env": "other"}, "target_tags": {"env": "prod"}, "percentage": 50.0}
+    ])
+    
+    # Source costs (for env=other): $200 on 2024-01-01
+    # Mock get_daily_costs differently based on tags.
+    def side_effect_costs(cur, sid, tags, **kwargs):
+        if tags == {"env": "prod"}: return [{"date": "2024-01-01", "cost": 100.0}]
+        if tags == {"env": "other"}: return [{"date": "2024-01-01", "cost": 200.0}]
+        return []
+        
+    mocker.patch("crud.costs.get_daily_costs", side_effect=side_effect_costs)
+    
+    # Act
+    costs = get_aggregated_daily_costs(cursor, scope_id=1, active_tags={"env": "prod"}, 
+                                       start_date=date(2024,1,1), end_date=date(2024,1,2))
+    
+    # Assert: 100 base + 50% of 200 = 200 total
+    assert costs["2024-01-01"] == 200.0
+
+def test_calculate_chargeback_forecast_ml_path(mocker):
+    """Verify the ML forecast path using mocked StatsForecast."""
+    cursor = MagicMock()
+    mocker.patch("services.cost_service._prepare_dates_and_cutoff", 
+                 return_value=(date(2024,1,1), date(2024,1,1), date(2024,2,1), 31, date(2024,1,15), 15))
+    mocker.patch("services.cost_service.get_aggregated_daily_costs", return_value={"2024-01-01": 50.0})
+    mocker.patch("crud.costs.get_budget", return_value=1000.0)
+    
+    # Mock StatsForecast
+    mock_sf_cls = mocker.patch("services.cost_service.StatsForecast")
+    mock_sf = mock_sf_cls.return_value
+    
+    # Mock forecast result
+    # Columns need to match what the service expects: ['ds', 'AutoETS']
+    forecast_df = pd.DataFrame({
+        'ds': [datetime(2024, 1, 16)],
+        'AutoETS': [55.0]
+    })
+    mock_sf.forecast.return_value = forecast_df
+    mock_sf.forecast_fitted_values.return_value = pd.DataFrame()
+    
+    from services.cost_service import calculate_chargeback_forecast
+    res = calculate_chargeback_forecast(cursor, 1, {"env": "prod"}, "2024-01")
+    
+    assert res["budget"] == 1000.0
+    # On 2024-01-16 (day 16), it should use the forecast cumulative which starts at cutoff
+    assert res["forecast_cumulative"][15] is not None
+
+def test_calculate_chargeback_forecast_sma_fallback(mocker):
+    """Verify fallback to 15-day Simple Moving Average when ML model fails."""
+    cursor = MagicMock()
+    mocker.patch("services.cost_service._prepare_dates_and_cutoff", 
+                 return_value=(date(2024,1,1), date(2024,1,1), date(2024,2,1), 31, date(2024,1,15), 15))
+    
+    # Recent history: 15 days of $100
+    history = { (date(2024,1,15) - timedelta(days=i)).isoformat(): 100.0 for i in range(15) }
+    mocker.patch("services.cost_service.get_aggregated_daily_costs", return_value=history)
+    
+    # Force StatsForecast to fail
+    mocker.patch("services.cost_service.StatsForecast", side_effect=Exception("ML Error"))
+    
+    from services.cost_service import calculate_chargeback_forecast
+    res = calculate_chargeback_forecast(cursor, 1, {"env": "prod"}, "2024-01")
+    
+    # Assert
+    # SMA should be 100.0. Cumulative on day 16 should be (15 * 100) + 100 = 1600.
+    assert res["forecast_cumulative"][15] == 1600.0 # Day 16 cumulative
+    assert res["actual_daily"][14] == 100.0        # Day 15 actual

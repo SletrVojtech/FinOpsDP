@@ -3,10 +3,6 @@ import calendar
 from collections import defaultdict
 from crud import kube
 
-#   - OpenCost Specification §Appendix A  (https://www.opencost.io/docs/specification)
-#   - CAST.ai "Kubernetes Cost Allocation" blog post
-#   - Kubecost default split: 0.70 CPU / 0.30 RAM
-# ---------------------------------------------------------------------------
 CPU_WEIGHT = 0.70   # fraction of cluster cost attributed to CPU requests
 RAM_WEIGHT = 0.30   # fraction of cluster cost attributed to memory requests
 
@@ -16,11 +12,16 @@ def get_daily_namespace_allocation(cursor, cluster_id: int,
                                     start_date: date = None, end_date: date = None,
                                    return_ui_format: bool = True):
     """
-    Calculate daily costs of the cluster per namespace using a weighted
-    combination of CPU and memory reservation shares.
+    Distributes daily cluster costs among namespaces based on their resource utilization.
+        Fetch daily average CPU/RAM reservation shares (%) for each namespace from the DB.
+        Combine these shares using a static weight (0.7 for CPU, 0.3 for RAM) to derive
+        a single 'combined share' per namespace per day.
+        Multiply the day's total cluster cost (derived from the cloud billing table) 
+        by the combined share.
+        Ensures all namespaces are gap-filled across the entire range.
 
-    The combined share formula is:
-        share_ns = CPU_WEIGHT * cpu_share_ns + RAM_WEIGHT * ram_share_ns
+        return_ui_format: If True, returns Chart.js-compatible dataset format.
+
     """
 
     if base_date and not start_date:
