@@ -43,7 +43,7 @@ def test_metrics_processor_aws_pipeline(mock_db):
     
     # Check the account entity
     first_call_args = cursor.execute.call_args_list[0][0][1] # Tuple of parameters
-    assert first_call_args[0] == "111122223333" # ExternalId (Account ID)
+    assert first_call_args[0] == "111122223333" # ExternalId
     assert first_call_args[3] == "aws_account"  # ResourceType
     
     # Check the instance entity
@@ -53,6 +53,7 @@ def test_metrics_processor_aws_pipeline(mock_db):
 
     # Assert for metrics
     mock_execute_values.assert_called_once()
+
     
     args, kwargs = mock_execute_values.call_args
     inserted_values = args[2] # data
@@ -80,10 +81,8 @@ def test_metrics_processor_azure_hierarchy(mock_db):
 
     with patch('db_loader.metrics_processor.execute_values') as mock_execute_values:
         processor.process(mock_envelope)
-
-    # Assert
-    cursor = mock_db.cursor.return_value
     
+    cursor = mock_db.cursor.return_value
     # (Subscription, Resource Group, VM)
     assert cursor.execute.call_count == 3
     
@@ -93,3 +92,39 @@ def test_metrics_processor_azure_hierarchy(mock_db):
     
     # No metrics upsert called
     mock_execute_values.assert_not_called()
+
+def test_metrics_processor_hash_match(mock_db):
+    """Verify that if MetaHash matches, we perform a manual ID lookup."""
+    cursor = mock_db.cursor.return_value
+    
+    # UPSERT for AWS Account succeeds with ID 1
+    # UPSERT for resource returns None (hash match)
+    # SELECT for resource returns ID 99
+    cursor.fetchone.side_effect = [[1], None, [99]]
+
+
+    
+    mock_envelope = MagicMock()
+    mock_envelope.payload = {
+        "provider": "aws",
+        "resource_id": "i-match",
+        "billing_account_id": "123",
+        "resource_name": "match",
+        "resource_type": "aws.ec2",
+        "metric_name": "cpu",
+        "metric_period": 60,
+        "datapoints": []
+    }
+    
+    processor = MetricsProcessor(mock_db)
+    processor.process(mock_envelope)
+    
+    # Should have called:
+    # 1. UPSERT account
+    # 2. UPSERT instance
+    # 3. SELECT instance (because UPSERT returned nothing)
+    assert cursor.execute.call_count >= 3
+    
+    # The last execute should be the manual ID lookup
+    last_query = cursor.execute.call_args_list[-1][0][0]
+    assert "SELECT Id FROM Entities WHERE ExternalId =" in last_query

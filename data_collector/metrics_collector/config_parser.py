@@ -5,11 +5,17 @@ class ConfigParser:
     def __init__(self, config_path: str = "conf/metrics.yml",
                   definitions_path: str = "conf/metrics_definitions.yml",
                     safety_overlap_hours: int = 1):
-        with open(config_path, 'r') as f:
-            self.user_config = yaml.safe_load(f)
+        try:
+            with open(config_path, 'r') as f:
+                self.user_config = yaml.safe_load(f)
+        except (FileNotFoundError, yaml.YAMLError) as e:
+            raise RuntimeError(f"Failed to load metrics config from {config_path}: {e}")
             
-        with open(definitions_path, 'r') as f:
-            self.definitions = yaml.safe_load(f)['metrics_dictionary']
+        try:
+            with open(definitions_path, 'r') as f:
+                self.definitions = yaml.safe_load(f)['metrics_dictionary']
+        except (FileNotFoundError, yaml.YAMLError, KeyError) as e:
+            raise RuntimeError(f"Failed to load metrics definitions from {definitions_path}: {e}")
             
         self.safety_overlap_hours = safety_overlap_hours
 

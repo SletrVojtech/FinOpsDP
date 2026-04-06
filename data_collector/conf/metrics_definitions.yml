@@ -2,8 +2,8 @@ metrics_dictionary:
   cpu_usage:
     aws: "CPUUtilization"
     azure: "Percentage CPU"
-  mem_available:
-    azure: "Available Memory Percentage"
+  mem_used:
+    azure: "Available Memory Percentage" # inverted values done by MetricDefinitions
     # aws doesn't export natively
   net_in:
     azure: "Network In Total"

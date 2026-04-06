@@ -19,133 +19,145 @@ from rabbitmq.message import IngestionMessage
 from metrics_collector.message_adapters import AdapterFactory
 from metrics_collector.config_parser import ConfigParser
 
-
-
-
 log = logging.getLogger('metrics_collector')
 
 
-
-#TODO Split apart
-def run_account_in_memory(account, region, policy_data, output_dir, granularity, debug=False):
+class CustodianAccountWorker:
     """
-        Worker function based on c7n_org.cli.run_account. 
+    Handles the execution of Cloud Custodian policies for a specific account and region.
     """
+    def __init__(self, account, region, policy_data, output_dir, granularity, debug=False):
+        self.account = account
+        self.region = region
+        self.policy_data = policy_data
+        self.output_dir = output_dir
+        self.granularity = granularity
+        self.debug = debug
+        self.success = False
+        self.policy_counts = {}
+        self.provider = account.get('provider')
 
-        # Setup configuration options
-    options = Config.empty(
-        region=region,
-        output_dir=output_dir,  # directory for Custodian policy logs.
-        metrics_enabled=False,
+    def run(self):
+        """Main execution flow for the account/region."""
+        options = self._setup_options()
+        env_vars = self._get_env_vars()
+
+        # Isolated environment variables for the cloud provider calls
+        with environ(**env_vars):
+            loader = PolicyLoader(options)
+            policy_provider = f"*{self.provider}*"
+            
+            # Load and filter policies for current provider
+            collection = loader.load_data(self.policy_data, "in-memory").filter(policy_patterns=[policy_provider])
+            
+            with RabbitMQClient() as mq_client:
+                for policy in collection:
+                    try:
+                        self._run_policy(policy, mq_client)
+                        self.success = True
+                    except ClientError as e:
+                        self.success = False or self.success
+                        if e.response['Error']['Code'] == 'AccessDenied':
+                            log.warning('Access denied api:%s policy:%s account:%s region:%s',
+                                        e.operation_name, policy.name, self.account['name'], self.region)
+                            continue
+                        log.error("Exception running policy:%s account:%s error:%s",
+                                 policy.name, self.account['name'], e)
+                    except Exception as e:
+                        self.success = False
+                        log.error("Exception running policy:%s account:%s error:%s",
+                                 policy.name, self.account['name'], e)
+                        if self.debug:
+                            raise
+        
+        return self.policy_counts, self.success
+
+    def _setup_options(self):
+        """Initializes Custodian configuration options."""
+        options = Config.empty(
+            region=self.region,
+            output_dir=self.output_dir,
+            metrics_enabled=False,
+        )
+        if self.account.get('role'):
+            if isinstance(self.account['role'], str):
+                options['assume_role'] = self.account['role']
+                options['external_id'] = self.account.get('external_id')
+        elif self.account.get('profile'):
+            options['profile'] = self.account['profile']
+        return options
+
+    def _get_env_vars(self):
+        """Prepares environment variables (credentials/tags) for the session."""
+        env_vars = account_tags(self.account)
+        if self.account.get('role') and not isinstance(self.account['role'], str):
+            env_vars.update(
+                _get_env_creds(self.account, get_session(self.account, 'custodian', self.region), self.region))
+        return env_vars
+
+    def _run_policy(self, policy, mq_client):
+        """Executes a single policy and handles the result ingestion."""
+        # Force in-memory-pull mode
+        if policy.data.get('mode', {}).get('type', 'pull') == 'pull':
+            policy.data['mode'] = {'type': 'in-memory-pull'}
+        
+        policy.data['regions'] = [self.region]
+        policy.expand_variables(policy.get_variables())
+        policy.conditions.env_vars['account'] = self.account
+        policy.expand_variables(policy.get_variables(self.account.get('vars', {})))
+
+        log.debug("Running policy:%s account:%s region:%s", 
+                  policy.name, self.account['name'], self.region)
+        
+        st = time.time()
+        resources = policy()
+        self.policy_counts[policy.name] = len(resources) if resources else 0
+        
+        if not resources:
+            return
+
+        # Adapt and publish results
+        for raw_resource in resources:
+            self._publish_resource(policy, raw_resource, mq_client)
+
+        log.info("Ran account:%s region:%s policy:%s matched:%d time:%0.2f",
+                 self.account['name'], self.region, policy.name, len(resources), time.time() - st)
+
+
+    def _publish_resource(self, policy, raw_resource, mq_client):
+        """Adapts a resource to the internal format and publishes to RabbitMQ."""
+        kwargs = {
+            'policy_name': policy.name,
+            'granularity': self.granularity
+        }
+        if self.provider == 'aws':
+            kwargs['account_id'] = self.account.get('account_id', 'unknown')
+            kwargs['region_name'] = self.region
+
+        adapter = AdapterFactory.create(
+            provider=self.provider, 
+            res_type=policy.resource_type, 
+            raw_resource=raw_resource, 
+            **kwargs
+        )
+        
+        metrics_payload = adapter.to_payloads()
+        msg = IngestionMessage(
+            source_module="custodian",
+            payload=metrics_payload.model_dump()
+        )
+        mq_client.publish(
+            queue_name="data_ingestion", 
+            message=msg.model_dump_json()
         )
 
-    # Load environment variables for given account. 
-    env_vars = account_tags(account)
-    if account.get('role'):
-        if isinstance(account['role'], str):
-            options['assume_role'] = account['role']
-            options['external_id'] = account.get('external_id')
-        else:
-            env_vars.update(
-                _get_env_creds(account, get_session(account, 'custodian', region), region))
-
-    elif account.get('profile'):
-        options['profile'] = account['profile']
-    
-    success = True
-    policy_counts = {}
-
-    # Isolated environment variables
-    with environ(**env_vars):
-        loader = PolicyLoader(options)
-        provider = account.get('provider')
-        policy_provider = "*" + provider + "*"
-            
-        collection = loader.load_data(policy_data, "in-memory").filter(policy_patterns=[policy_provider])
-        with RabbitMQClient() as mq_client:
-            for policy in collection:
-                # Force in-memory-pull
-                if policy.data.get('mode', {}).get('type', 'pull') == 'pull':
-                    policy.data['mode'] = {'type': 'in-memory-pull'}
-                policy.data['regions'] = [region]
-                # Expand variables (e.g. {account_id}, {region}) in the policy
-                policy.expand_variables(policy.get_variables())
-                # Extend policy execution conditions with account information
-                policy.conditions.env_vars['account'] = account
-                # Variable expansion and non schema validation (not optional)
-                policy.expand_variables(policy.get_variables(account.get('vars', {})))
-                log.debug(
-                    "Running policy:%s account:%s region:%s",
-                    policy.name, account['name'], region)
-                try:
-                    # In memory execution
-                    st = time.time()
-                    resources = policy() 
-                    policy_counts[policy.name] = resources and len(resources) or 0
-                    if not resources:
-                        return policy_counts, success
-                    res_type = policy.resource_type
-                    # Parse each returned resource into a RabbitMQ message
-                    for raw_resource in resources:
-                        kwargs = {
-                            'policy_name': policy.name,
-                            'granularity': granularity
-                        }
-                        if provider == 'aws':
-                            kwargs['account_id'] = account.get('account_id', 'unknown')
-                            kwargs['region_name'] = region
-
-                        adapter = AdapterFactory.create(
-                                provider=provider, 
-                                res_type=res_type, 
-                                raw_resource=raw_resource, 
-                                **kwargs
-                            )
-                        
-                        metrics_payload = adapter.to_payloads()
-                        
-                        msg = IngestionMessage(
-                            source_module="custodian",
-                            payload=metrics_payload.model_dump()
-                        )
-                        mq_client.publish(
-                            queue_name="data_ingestion", 
-                            message=msg.model_dump_json()
-                        )
-
-                    log.info(
-                        "Ran account:%s region:%s policy:%s matched:%d time:%0.2f",
-                        account['name'], region, policy.name, len(resources),
-                        time.time() - st)
-                    
-
-                except ClientError as e:
-                    success = False
-                    if e.response['Error']['Code'] == 'AccessDenied':
-                        log.warning('Access denied api:%s policy:%s account:%s region:%s',
-                                    e.operation_name, policy.name, account['name'], region)
-                        return policy_counts, success
-                    log.error(
-                        "Exception running policy:%s account:%s region:%s error:%s",
-                        policy.name, account['name'], region, e)
-                    continue
-                except ValueError as e:
-                    log.warning(e)
-                    if not debug:
-                        continue
-                except Exception as e:
-                    success = False
-                    log.error(
-                        "Exception running policy:%s account:%s region:%s error:%s",
-                        policy.name, account['name'], region, e)
-                    if not debug:
-                        continue
-                    import traceback, pdb, sys
-                    traceback.print_exc()
-                    pdb.post_mortem(sys.exc_info()[-1])
-                    raise
-
-    return policy_counts, success
+def run_account_in_memory(account, region, policy_data, output_dir, granularity, debug=False):
+    """
+    Worker function for the concurrent executor. 
+    Uses CustodianAccountWorker to handle the internal logic.
+    """
+    worker = CustodianAccountWorker(account, region, policy_data, output_dir, granularity, debug)
+    return worker.run()
 
 
 from registry import register_collector

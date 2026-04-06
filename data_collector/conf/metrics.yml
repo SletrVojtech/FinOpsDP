@@ -25,7 +25,7 @@ measure:
     measurement:
       - metric: cpu_usage
         aggregate: ["avg", "max"]
-      - metric: mem_available
+      - metric: mem_used
       - metric: net_in
         aggregate: ["avg"]
       - metric: net_out
