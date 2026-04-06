@@ -41,18 +41,33 @@ def get_instance_metadata(db_cursor, resource_id: int) -> Optional[Dict[str, Any
     }
 
 
+def _resolve_data_source(db_cursor, analysis_days: int) -> tuple:
+    """Returns (table_name, value_column) based on DataDictionary lookup."""
+    # Defaults
+    table = "metrics"
+    val_col = "value"
+
+    if analysis_days > 14:
+        # Prefer aggregates for longer timeframes
+        db_cursor.execute("SELECT TableName FROM DataDictionary WHERE DataType = 'metric' AND Granularity >= '1 hour' ORDER BY Granularity ASC LIMIT 1")
+        row = db_cursor.fetchone()
+        if row:
+            table = row[0]
+            val_col = "max_value"
+            
+    return table, val_col
+
+
 def get_telemetry(db_cursor, resource_id: int, analysis_days: int) -> Dict[str, Optional[float]]:
     """Queries for percentiles and aggregated max values."""
-    # TODO get metric table from _resolve_data_source
-    table = "metrics" if analysis_days <= 14 else "metrics_hourly"
-    val_col = "value" if analysis_days <= 14 else "max_value"
+    table, val_col = _resolve_data_source(db_cursor, analysis_days)
 
     query = f"""
         WITH time_filtered AS (
             SELECT metrictype as metric_name, {val_col} as val
             FROM {table}
             WHERE entityid = %(resource_id)s
-              AND "timestamp" >= NOW() - INTERVAL '{analysis_days} days'
+              AND "timestamp" >= NOW() - (%(days)s * INTERVAL '1 day')
         )
         SELECT
             (SELECT percentile_cont(0.95) WITHIN GROUP (ORDER BY val) FROM time_filtered WHERE metric_name = 'cpu_usage_avg') AS cpu_p95,
@@ -62,7 +77,7 @@ def get_telemetry(db_cursor, resource_id: int, analysis_days: int) -> Dict[str, 
             (SELECT MAX(val) FROM time_filtered WHERE metric_name = 'net_in_bps_avg') AS net_in_max,
             (SELECT MAX(val) FROM time_filtered WHERE metric_name = 'net_out_bps_avg') AS net_out_max;
     """
-    db_cursor.execute(query, {"resource_id": resource_id})
+    db_cursor.execute(query, {"resource_id": resource_id, "days": analysis_days})
     row = db_cursor.fetchone()
 
     if not row:
@@ -80,7 +95,7 @@ def get_actual_daily_cost(db_cursor, resource_id: str, analysis_days: int) -> fl
         SELECT COALESCE(AVG(billedcost), 0.0)
         FROM costs
         WHERE entityid = %(resource_id)s
-          AND "chargeperiodstart" >= NOW() - INTERVAL '%(analysis_days)s days';
+          AND "chargeperiodstart" >= NOW() - (%(analysis_days)s * INTERVAL '1 day');
     """
     db_cursor.execute(query, {"resource_id": resource_id, "analysis_days": analysis_days})
     return db_cursor.fetchone()[0]

@@ -18,8 +18,15 @@ def evaluate_downsizing(
     are never returned. Premium storage is a soft ordering hint only.
     """
 
+    if target_cpu_util <= 0:
+        target_cpu_util = 1.0 # fallback for zero target
+    if target_ram_util <= 0:
+        target_ram_util = 1.0
+
     if excluded_filters is None:
         excluded_filters = []
+
+
     # Get actual instance metadata
     current = crud_downsizing.get_instance_metadata(db_cursor, resource_id)
     if not current:
