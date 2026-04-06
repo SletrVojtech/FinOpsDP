@@ -19,7 +19,7 @@ def test_run_kube_collection_success(mock_rmq_client, mock_collector_class, mock
     mock_rmq_instance = mock_rmq_client.return_value.__enter__.return_value
 
     # Act
-    run_kube_collection(config_path="dummy.yml", hours_back=1)
+    run_kube_collection(config_path="dummy.yml", hours=1)
 
     # Assert
     mock_collector_class.assert_called_once_with(config_path="dummy.yml", hours_back=1)

@@ -32,7 +32,7 @@ def test_config_parser_generates_valid_aws_policy(mock_file):
 
     # Act
     parser = ConfigParser(config_path="conf/metrics.yml", definitions_path="conf/metrics_definitions.yml")
-    policies = parser.generate_policies()
+    policies, granularity = parser.generate_policies()
 
     # Assert
     assert len(policies) == 1

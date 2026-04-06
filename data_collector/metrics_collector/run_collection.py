@@ -27,7 +27,7 @@ log = logging.getLogger('metrics_collector')
 
 
 #TODO Split apart
-def run_account_in_memory(account, region, policy_data, output_dir, debug=False):
+def run_account_in_memory(account, region, policy_data, output_dir, granularity, debug=False):
     """
         Worker function based on c7n_org.cli.run_account. 
     """
@@ -89,6 +89,7 @@ def run_account_in_memory(account, region, policy_data, output_dir, debug=False)
                     for raw_resource in resources:
                         kwargs = {
                             'policy_name': policy.name,
+                            'granularity': granularity
                         }
                         if provider == 'aws':
                             kwargs['account_id'] = account.get('account_id', 'unknown')
@@ -154,7 +155,7 @@ def run_metrics_collector():
     try:
         parser = ConfigParser()
     
-        generated_policies = parser.generate_policies()
+        generated_policies, granularity = parser.generate_policies()
 
 
         POLICY_DATA = {
@@ -199,7 +200,8 @@ def run_metrics_collector():
                     account=account,
                     region=region,
                     policy_data=POLICY_DATA,
-                    output_dir=".log"
+                    output_dir=".log",
+                    granularity=granularity
                 )
                 futures[future] = (account, region)
 

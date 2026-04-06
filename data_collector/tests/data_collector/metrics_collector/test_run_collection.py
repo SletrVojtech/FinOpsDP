@@ -34,6 +34,7 @@ def test_run_account_in_memory_success(mock_policy_loader, mock_rmq_client):
             region=mock_region,
             policy_data=mock_policy_data,
             output_dir="/tmp/test",
+            granularity="PT5M",
             debug=True
         )
 

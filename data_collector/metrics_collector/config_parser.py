@@ -56,4 +56,4 @@ class ConfigParser:
                 
                     policies.append(policy)
                 
-        return policies
+        return policies, granularity

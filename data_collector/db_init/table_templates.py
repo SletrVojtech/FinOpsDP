@@ -145,6 +145,13 @@ SCHEMA_DEFINITIONS = {
         baseline_iops INTEGER,
         baseline_throughput_mbps NUMERIC(15, 2),
         network_performance VARCHAR(100),
+        -- Instance class constraints
+        architecture VARCHAR(10) NOT NULL DEFAULT 'x86_64',
+        is_gpu BOOLEAN NOT NULL DEFAULT FALSE,
+        is_confidential BOOLEAN NOT NULL DEFAULT FALSE,
+        has_local_storage BOOLEAN NOT NULL DEFAULT FALSE,
+        supports_premium_storage BOOLEAN NOT NULL DEFAULT FALSE,
+        
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY (cloud, instance_type)
     );

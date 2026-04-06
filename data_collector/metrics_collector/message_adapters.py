@@ -38,6 +38,16 @@ class AdapterFactory:
 
 class BaseCloudAdapter(ABC):
     """Downloaded metrics to RabbitMQ MetricsPayload message adapter class"""
+
+    period_dict = {
+        'PT5M': 5,
+        'PT15M': 15,
+        'PT30M': 30,
+        'PT1H': 60,
+        'PT6H': 360,
+        'PT12H': 720,
+        'P1D': 1440,
+    }
     
     def __init__(self, raw_data: Dict[str, Any], **kwargs):
         """Kwargs for adding data not available in returned values."""
@@ -77,6 +87,9 @@ class BaseCloudAdapter(ABC):
         """Special values based on resource type"""
         return {}
 
+    def get_metric_period(self) -> int:
+        return self.period_dict.get(self.kwargs.get("granularity", "PT5M"), 5)
+
     def to_payloads(self) -> List[MetricsPayload]:
         """
         Assembles the payload
@@ -87,7 +100,7 @@ class BaseCloudAdapter(ABC):
             resource_type=self.get_resource_type(),
             resource_name=self.get_resource_name(),
             metric_name=self.get_metric_name(),
-            metric_period = 5,
+            metric_period = self.get_metric_period(),
             billing_account_id=self.get_billing_account_id(),
             region_name=self.get_region_name(),
             tags=self.get_tags(),

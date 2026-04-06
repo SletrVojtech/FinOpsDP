@@ -51,7 +51,6 @@ def run_catalog_collector():
     # Get Price info
     print("Fetching Pricing")
     all_pricing = deduplicate_pricing_records(aws_price.fetch_pricing()) + deduplicate_pricing_records(azure_price.fetch_pricing())
-    #all_pricing = deduplicate_pricing_records(azure_price.fetch_pricing())
     
 
     payload_dict = {

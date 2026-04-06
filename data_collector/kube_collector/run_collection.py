@@ -8,7 +8,7 @@ log = logging.getLogger("kube_runner")
 from registry import register_collector
 
 @register_collector("kube", help_text="Download from Kubernetes and send to RMQ", cli_args=[("--hours", {"type": int, "default": 240, "help": "Time window to download data from"})])
-def run_kube_collection(config_path: str = ".conf/kube_clusters.yml", hours_back: int = 24):
+def run_kube_collection(config_path: str = ".conf/kube_clusters.yml", hours: int = 24):
     """
     Run Prometheus collector across kubernetes clusters.
     """
@@ -18,7 +18,7 @@ def run_kube_collection(config_path: str = ".conf/kube_clusters.yml", hours_back
 
     log.info(f"Running KubePrometheusCollector.")
     
-    collector = KubePrometheusCollector(config_path=config_path, hours_back=hours_back)
+    collector = KubePrometheusCollector(config_path=config_path, hours_back=hours)
     messages = collector.collect_all()
     
     if not messages:
