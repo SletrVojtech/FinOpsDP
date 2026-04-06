@@ -116,17 +116,19 @@ def get_dynamic_items(cursor, scope_id: int = None, tags_filter: dict = None):
     # Get the scope
     base_sql = """
         WITH RECURSIVE SubTree AS (
-            SELECT Id, ParentId, ResourceName, ResourceType, Tags FROM Entities WHERE Id = %s
+            SELECT Id, ParentId, ResourceName, ResourceType, Tags, ARRAY[Id] as path
+            FROM Entities WHERE Id = %s
             UNION ALL
-            SELECT e.Id, e.ParentId, e.ResourceName, e.ResourceType, e.Tags FROM Entities e
+            SELECT e.Id, e.ParentId, e.ResourceName, e.ResourceType, e.Tags, s.path || e.Id
+            FROM Entities e
             JOIN SubTree s ON e.ParentId = s.Id
         ),
-        BaseData AS (
-            SELECT Id, ResourceName, ResourceType, Tags, ParentId
+        Paths AS (
+            SELECT path
             FROM SubTree
             WHERE 1=1
     """
-    params.extend([scope_id])
+    params.append(scope_id)
     
     # Filter by tags
     for key, value in tags_filter.items():
@@ -137,33 +139,32 @@ def get_dynamic_items(cursor, scope_id: int = None, tags_filter: dict = None):
     # Bottom up
 
     base_sql +="""
-    TreePaths AS (
-            -- filtered data
-            SELECT Id, ParentId, ResourceName, ResourceType, Tags
-            FROM BaseData
-
-            UNION ALL
-            
-            -- get their parents
-            SELECT e.Id, e.ParentId, e.ResourceName, e.ResourceType, e.Tags
-            FROM Entities e
-            JOIN TreePaths t ON t.ParentId = e.Id
-            WHERE e.Id != %s 
+        ValidIds AS (
+            SELECT DISTINCT unnest(path) as valid_id
+            FROM Paths
         ),
+        UniqueNodes AS (
+            SELECT s.Id, s.ParentId, s.ResourceName, s.ResourceType as Type
+            FROM SubTree s
+            JOIN ValidIds v ON s.Id = v.valid_id
+            WHERE s.Id != %s
+        )   
     """
     params.append(scope_id)
-
-    has_metrics_sql = (
-        "EXISTS(SELECT 1 FROM Metrics m WHERE m.EntityId = u.Id)" 
-        if getattr(AppConfig, 'ENABLE_METRICS', False) else "False"
-    )
+    # Check if metrics are enabled and if the entity is a direct child of the scope
+    if getattr(AppConfig, 'ENABLE_METRICS', False):
+        has_metrics_sql = f"""
+            CASE 
+                WHEN u.ParentId = {scope_id} THEN 
+                    EXISTS(SELECT 1 FROM Metrics m WHERE m.EntityId = u.Id AND m.Timestamp >= NOW() - INTERVAL '24 HOURS')
+                ELSE False 
+            END
+        """
+        
+    else:
+        has_metrics_sql = "False"
     # finalize data with has_children, has_metrics
     base_sql += """
-        UniqueNodes AS (
-            SELECT DISTINCT Id, ParentId, ResourceName, ResourceType as Type
-            FROM TreePaths
-            WHERE Id != %s
-        )
         SELECT 
             u.Id, 
             u.ResourceName, 
@@ -175,8 +176,6 @@ def get_dynamic_items(cursor, scope_id: int = None, tags_filter: dict = None):
         FROM UniqueNodes u
         ORDER BY u.Type, u.ResourceName;
     """
-    params.append(scope_id)
-    #params.append(has_metrics_sql)
     
     cursor.execute(base_sql, params)
     return [{"id": r[0], "name": r[1], "type": r[2], "has_children": r[3], "parent_id": r[4], "has_metrics": r[5]} for r in cursor.fetchall()]

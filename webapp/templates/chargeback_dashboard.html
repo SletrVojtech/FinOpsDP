@@ -59,18 +59,21 @@
         window._chartMode = mode;
         
         // Update button styles
-        document.getElementById('btn-classic').style.cssText += ';background:' + (mode==='classic' ? '#4a90d9;color:#fff' : '#fff;color:') + ';';
-        document.getElementById('btn-stacked').style.cssText += ';background:' + (mode==='stacked' ? '#4a90d9;color:#fff' : '#fff;color:') + ';';
-        document.getElementById('btn-tag').style.cssText += ';background:' + (mode==='tag' ? '#4a90d9;color:#fff' : '#fff;color:') + ';';
+        ['classic', 'stacked', 'tag'].forEach(m => {
+            const btn = document.getElementById('btn-' + m);
+            if (m === mode) {
+                btn.classList.remove('btn-outline');
+                btn.classList.add('btn-primary');
+            } else {
+                btn.classList.remove('btn-primary');
+                btn.classList.add('btn-outline');
+            }
+        });
         
         // Show/hide tag selector
         document.getElementById('tagKeySelect').style.display = (mode === 'tag') ? 'inline-block' : 'none';
         
-        if (mode === 'tag' || (window._lastChargebackData && !window._lastChargebackData.breakdown_by_category)) {
-             renderChargebackChart();
-        } else if (window._lastChargebackData) {
-             buildAndRenderChart(window._lastChargebackData);
-        }
+        renderChargebackChart();
     }
 
     function buildAndRenderChart(data) {
@@ -242,6 +245,13 @@
 
     document.getElementById('monthSelect').addEventListener('change', renderChargebackChart);
     
+    // Set the initial month to the current month
+    var initialMonthInput = document.getElementById('monthSelect');
+    if (!initialMonthInput.value) {
+        var now = new Date();
+        initialMonthInput.value = now.toISOString().substring(0, 7);
+    }
+
     // Initial UI state for buttons
     setChartMode('classic');
 </script>
