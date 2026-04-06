@@ -11,8 +11,9 @@ def test_run_krr_for_context_success():
     mock_result.stdout = fake_json_output
     
     # Act
-    with patch('run_krr.subprocess.run', return_value=mock_result) as mock_run:
-        result = run_krr_for_context("my-k8s-context")
+    with patch('run_krr.get_kubeconfig_path', return_value="/tmp/kubeconfig"):
+        with patch('run_krr.subprocess.run', return_value=mock_result) as mock_run:
+            result = run_krr_for_context("my-k8s-context")
 
     # Assert
     mock_run.assert_called_once()

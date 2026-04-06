@@ -80,8 +80,9 @@ services:
       - data_collector/.env.collector
     volumes:
       - type: bind
-        source: "/home//.kube/config"
+        source: "${KUBECONFIG_PATH}"
         target: /root/.kube/config
+        read_only: true
     command: ["python3", "run_policies.py", "scheduler"]
     restart: unless-stopped
     depends_on:
@@ -104,7 +105,7 @@ services:
       rabbitmq:
         condition: service_healthy
     volumes:
-      - /home//.kube/config:/root/.kube/config:ro
+      - ${KUBECONFIG_PATH}:/root/.kube/config:ro
       - /var/run/docker.sock:/var/run/docker.sock
     command: ["python3", "run_krr.py"]
 
