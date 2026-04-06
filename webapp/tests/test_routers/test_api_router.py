@@ -52,3 +52,58 @@ def test_set_budget(client, mock_cursor, override_db, mocker):
     assert response.json()["amount"] == 1000.0
     # verify commit was called on mock_cursor.connection
     mock_cursor.connection.commit.assert_called_once()
+
+def test_api_get_children(client, mock_cursor, override_db, mocker):
+    """Test /api/v1/children/{parent_id} endpoint."""
+    mock_get_children = mocker.patch("crud.entities.get_children", return_value=[{"id": 2, "name": "Child"}])
+    response = client.get("/api/v1/children/1")
+    assert response.status_code == 200
+    assert response.json()["data"][0]["name"] == "Child"
+
+def test_api_get_available_metrics(client, mock_cursor, override_db, mocker):
+    """Test /api/v1/metrics/{entity_id}/available endpoint."""
+    mock_get_metrics = mocker.patch("crud.metrics.get_available_metric_names", return_value=["cpu", "mem"])
+    response = client.get("/api/v1/metrics/1/available")
+    assert response.status_code == 200
+    assert "cpu" in response.json()["available_metrics"]
+
+def test_api_get_metric_data(client, mock_cursor, override_db, mocker):
+    """Test /api/v1/metrics/{entity_id}/data endpoint."""
+    mock_data = [{"timestamp": "2024-01-01T00:00:00", "value": 50.0}]
+    mock_get_data = mocker.patch("crud.metrics.get_metric_data", return_value=mock_data)
+    
+    response = client.get("/api/v1/metrics/1/data?metric_name=cpu&time_range=24 hours&granularity=1 hour")
+    
+    assert response.status_code == 200
+    assert response.json()["data_points"] == mock_data
+    mock_get_data.assert_called_once_with(mock_cursor, 1, "cpu", "24 hours", "1 hour")
+
+def test_api_add_allocation(client, mock_cursor, override_db, mocker):
+    """Test POST /api/v1/allocations endpoint."""
+    mock_add = mocker.patch("crud.allocations.add_allocation_rule")
+    payload = {
+        "rule_name": "Test Rule",
+        "source_tags": {"env": "prod"},
+        "target_tags": {"team": "data"},
+        "percentage": 50.0
+    }
+    response = client.post("/api/v1/allocations", json=payload)
+    assert response.status_code == 200
+    mock_add.assert_called_once()
+    mock_cursor.connection.commit.assert_called_once()
+
+def test_api_delete_allocation(client, mock_cursor, override_db, mocker):
+    """Test DELETE /api/v1/allocations/{rule_id} endpoint."""
+    mock_delete = mocker.patch("crud.allocations.delete_allocation_rule")
+    response = client.delete("/api/v1/allocations/10")
+    assert response.status_code == 200
+    mock_delete.assert_called_once_with(mock_cursor, 10)
+
+def test_api_get_downsizing_recommendation(client, mock_cursor, override_db, mocker):
+    """Test /api/v1/downsizing/{entity_id} endpoint."""
+    mock_eval = mocker.patch("services.downsizing.evaluate_downsizing", return_value={"status": "success", "action": "none"})
+    response = client.get("/api/v1/downsizing/1?analysis_days=7&target_cpu=50.0")
+    assert response.status_code == 200
+    assert response.json()["status"] == "success"
+    mock_eval.assert_called_once()
+

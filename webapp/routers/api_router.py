@@ -1,16 +1,13 @@
-from fastapi import APIRouter, Depends
-from db.database import get_db_cursor
-from crud import entities, metrics
-from fastapi import Query, Request
+from fastapi import APIRouter, Depends, Query, Request, HTTPException, APIRouter, Depends
 from services import cost_service
 from services.utils import extract_active_tags
 from datetime import date
 from pydantic import BaseModel
 from services import downsizing as downsizing_service
 from typing import List
-from services.utils import extract_active_tags
 import crud.costs as cost
-from crud import allocations
+from crud import allocations, entities, metrics
+from db.database import get_db_cursor
 
 
 
@@ -85,8 +82,11 @@ def api_set_budget(request: Request,payload: BudgetRequest,scope_id: int = 0,
     active_tags = extract_active_tags(request)
     
     if target_month:
-        year, month = map(int, target_month.split('-'))
-        period_date = date(year, month, 1)
+        try:
+            year, month = map(int, target_month.split('-'))
+            period_date = date(year, month, 1)
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=422, detail="Invalid target_month, expected YYYY-MM")
     else:
         period_date = date.today().replace(day=1)
 

@@ -1,6 +1,7 @@
 import pytest
 from main import app
 from db.database import get_db_cursor
+from datetime import datetime
 from unittest.mock import MagicMock
 
 @pytest.fixture
@@ -56,3 +57,45 @@ def test_cluster_cost_detail_json(client, mock_cursor, override_db, mocker):
     assert response.status_code == 200
     assert response.json()["month"] is not None
     assert response.json()["chart_data"] == {"data": "mocked"}
+
+def test_view_tag_values(client, mock_cursor, override_db, mocker):
+    """Test /ui/tag_values endpoint for dynamic filter buttons."""
+    mocker.patch("crud.entities.get_scoped_tag_values", return_value=[{"value": "val1", "count": 10}, {"value": "val2", "count": 5}])
+    response = client.get("/ui/tag_values?scope_id=1&tag_key=env")
+    assert response.status_code == 200
+    assert "val1" in response.text
+    assert "val2" in response.text
+
+def test_view_krr_dashboard(client, mock_cursor, override_db, mocker):
+    """Test /ui/krr endpoint."""
+    mocker.patch("crud.krr.get_krr_clusters", return_value=[{"cluster_id": 1, "cluster_name": "Cluster1", "latest_scan": datetime(2024, 1, 1)}])
+    response = client.get("/ui/krr")
+    assert response.status_code == 200
+    assert "Cluster1" in response.text
+
+def test_view_krr_detail(client, mock_cursor, override_db, mocker):
+    """Test /ui/krr/{cluster_id} endpoint."""
+    mocker.patch("crud.krr.get_cluster_name", return_value="Cluster1")
+    mocker.patch("crud.krr.get_krr_recommendations_for_cluster", return_value=[
+        {"namespace": "ns1", "currentcpurequest": 1000, "recommendedcpurequest": 500,
+         "currentmemoryrequest": 1024, "recommendedmemoryrequest": 512}
+    ])
+    response = client.get("/ui/krr/1")
+    assert response.status_code == 200
+    assert "Cluster1" in response.text
+    assert "ns1" in response.text
+
+def test_view_metrics_dashboard_404(client, mock_cursor, override_db):
+    """Entity not found returns 404."""
+    mock_cursor.fetchone.return_value = None
+    response = client.get("/ui/metrics/999")
+    assert response.status_code == 404
+    assert "Entity not found" in response.json()["detail"]
+
+def test_list_clusters(client, mock_cursor, override_db):
+    """Test /ui/clusters endpoint."""
+    mock_cursor.fetchall.return_value = [[1, "Cluster1"]]
+    response = client.get("/ui/clusters")
+    assert response.status_code == 200
+    assert "Cluster1" in response.text
+

@@ -1,5 +1,5 @@
 import urllib.parse
-from fastapi import APIRouter, Request, Depends
+from fastapi import APIRouter, Request, Depends, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from db.database import get_db_cursor
@@ -60,7 +60,10 @@ def get_tag_values(request: Request, scope_id: str = "", tag_key: str = None, cu
     if not tag_key:
         return HTMLResponse("")
         
-    scope_int = int(scope_id) if scope_id else 0
+    try:
+        scope_int = int(scope_id) if scope_id else 0
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid scope_id")
     values = entities.get_scoped_tag_values(cursor, scope_int, tag_key)
     
     return templates.TemplateResponse(request, "partial/tag_values.html", {
@@ -79,7 +82,10 @@ def view_metrics_dashboard(request: Request, entity_id: int, current_qs: str = "
     
     # Get the resource name
     cursor.execute("SELECT ResourceName FROM Entities WHERE Id = %s", (entity_id,))
-    entity_name = cursor.fetchone()[0]
+    row = cursor.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Entity not found")
+    entity_name = row[0]
 
     return templates.TemplateResponse(request, "metrics_dashboard.html", {
         "entity_id": entity_id,
@@ -97,7 +103,10 @@ def view_chargeback_dashboard(
     cursor = Depends(get_db_cursor)
 ):
     """Shows a page with chargeback dashboard"""
-    scope_int = int(scope_id) if scope_id else 0
+    try:
+        scope_int = int(scope_id) if scope_id else 0
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid scope_id")
     top_tags = entities.get_scoped_top_tags(cursor, scope_int)
     
     return templates.TemplateResponse(request, "chargeback_dashboard.html", {
@@ -180,9 +189,12 @@ def cluster_cost_detail(request: Request, cluster_id: int,
 
     # Resolve target month
     if target_month:
-        year, month = map(int, target_month.split("-"))
-        base_date = date(year, month, 1)
-        target_month_str = target_month
+        try:
+            year, month = map(int, target_month.split("-"))
+            base_date = date(year, month, 1)
+            target_month_str = target_month
+        except (ValueError, TypeError, IndexError):
+            raise HTTPException(status_code=422, detail="Invalid target_month, expected YYYY-MM")
     else:
         base_date = (date.today() - timedelta(days=1)).replace(day=1)
         target_month_str = base_date.strftime("%Y-%m")
