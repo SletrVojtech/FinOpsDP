@@ -28,11 +28,6 @@ def evaluate_downsizing(
     # Get current metrics
     tel = crud_downsizing.get_telemetry(db_cursor, resource_id, analysis_days)
 
-    # Sum the in/out metrics (slightly pesimistic)
-    iops_max = (tel["disk_read_max"] or 0) + (tel["disk_write_max"] or 0)
-    net_max_bps = (tel["net_in_max"] or 0) + (tel["net_out_max"] or 0)
-    net_max_mbps = net_max_bps / 1_000_000.0
-
     # Add a buffer to the measured needs, don't change the limits if metrics are missing
     if tel["cpu_p95"] is not None:
         target_vcpu = float(current["vcpu"]) * (tel["cpu_p95"] / target_cpu_util)
@@ -43,6 +38,22 @@ def evaluate_downsizing(
         target_ram = float(current["memory_gb"]) * (tel["ram_max"] / target_ram_util)
     else:
         target_ram = current["memory_gb"]
+
+    provider = current["provider"].lower()
+    
+    # Disk - sum of max read and write
+    iops_max = (tel.get("disk_read_max") or 0) + (tel.get("disk_write_max") or 0)
+
+    # Network - extract in Mbps
+    net_in_mbps = (tel.get("net_in_max") or 0) / 1_000_000.0
+    net_out_mbps = (tel.get("net_out_max") or 0) / 1_000_000.0
+
+    if provider == "azure":
+        # Azure limits only outbound traffic
+        required_net_mbps = net_out_mbps
+    else:
+        # AWS full duplex - limit applies to each direction separately
+        required_net_mbps = max(net_in_mbps, net_out_mbps)
 
     # Get class constraints from current instance
     constraints = {
@@ -63,7 +74,7 @@ def evaluate_downsizing(
         req_vcpu=max(1.0, target_vcpu),
         req_ram=max(1.0, target_ram),
         req_iops=float(iops_max),
-        req_net_mbps=float(net_max_mbps),
+        req_net_mbps=float(required_net_mbps),
         sql_like_patterns=sql_patterns,
         # Hard constraints
         architecture=current["architecture"],
@@ -80,6 +91,7 @@ def evaluate_downsizing(
             "action": "none",
             "message": "No smaller instances fit the target workloads.",
             "constraints_applied": constraints,
+            "current_instance": current["instance_type"]
         }
 
     # Get current costs
