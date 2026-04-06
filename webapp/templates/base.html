@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <title>FinOps Platforma</title>
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="/static/css/styles.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar Navigation -->
+        <nav class="sidebar-nav">
+            <div class="sidebar-header">
+                FinOps Dashboard
+            </div>
+            <ul class="sidebar-menu">
+                <li>
+                    <a hx-get="/ui/scope/" hx-target="#app-content" hx-swap="innerHTML" class="sidebar-link active">
+                        Scope Explorer
+                    </a>
+                </li>
+                <li>
+                    <a hx-get="/ui/allocations" hx-target="#app-content" hx-swap="innerHTML" class="sidebar-link">
+                        Sdílené náklady
+                    </a>
+                </li>
+                <li>
+                    <a hx-get="/ui/krr" hx-target="#app-content" hx-swap="innerHTML" class="sidebar-link">
+                        KRR Dashboard
+                    </a>
+                </li>
+                <li>
+                    <a hx-get="/ui/clusters" hx-target="#app-content" hx-swap="innerHTML" class="sidebar-link">
+                        Kubernetes
+                    </a>
+                </li>
+            </ul>
+        </nav>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            {% block content %}
+            <div id="app-content" hx-get="/ui/scope/" hx-trigger="load" hx-swap="innerHTML">
+                <div class="text-muted">Načítám data cloudu...</div>
+            </div>
+            {% endblock %}
+        </main>
+    </div>
+
+    <script>
+        // Simple script to toggle active state on sidebar links
+        document.addEventListener('click', function(e) {
+            if(e.target && e.target.classList.contains('sidebar-link')) {
+                document.querySelectorAll('.sidebar-link').forEach(l => l.classList.remove('active'));
+                e.target.classList.add('active');
+            }
+        });
+    </script>
+</body>
+</html>

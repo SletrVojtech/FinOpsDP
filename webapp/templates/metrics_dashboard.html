@@ -1,52 +1,53 @@
-<div>
-    
-    <button hx-get="/ui/scope/{{ scope_id if scope_id else '' }}?{{ current_qs }}"
-            hx-target="#app-content"
-            hx-swap="innerHTML">
+<div class="mb-4">
+    <button class="btn btn-outline" hx-get="/ui/scope/{{ scope_id if scope_id else '' }}?{{ current_qs }}" hx-target="#app-content" hx-swap="innerHTML">
         Zpět na seznam zdrojů
     </button>
+</div>
 
-    <h2>Detailní metriky: {{ entity_name }}</h2>
-    <p >ID zdroje: {{ entity_id }}</p>
-
-
-    <div >
-        <div>
-            <label for="timeRangeSelect" style="font-weight: bold; margin-right: 10px;">Časové okno:</label>
-            <select id="timeRangeSelect" style="padding: 5px;">
-                <option value="24 hours">Posledních 24 hodin</option>
-                <option value="7 days" selected>Posledních 7 dní</option>
-                <option value="30 days">Posledních 30 dní</option>
-            </select>
-        </div>
-        <div>
-            <label for="granularitySelect" style="font-weight: bold; margin-right: 10px;">Granularita:</label>
-            <select id="granularitySelect" style="padding: 5px;">
-                <option value="5 minutes">5 minut</option>
-                <option value="1 hour" selected>1 hodina</option>
-                <option value="1 day">1 den</option>
-            </select>
-        </div>
+<div class="card mb-4">
+    <div class="card-header">
+        <h2 class="mb-0">Detailní metriky: {{ entity_name }}</h2>
+        <div class="text-sm text-muted mt-1">ID zdroje: {{ entity_id }}</div>
     </div>
-
-    <div id="recommendation-panel">
-        <h3 style="margin-top: 0;">FinOps Doporučení (Rightsizing)</h3>
-        <div id="recommendation-content">
-            <p>Počítám doporučení</p>
-        </div>
-    </div>
-
-    <div id="charts-container" >
-        {% for metric in available_metrics %}
-            <div >
-                <h3>{{ metric }}</h3>
-                <canvas class="metric-chart" data-entity="{{ entity_id }}" data-metric="{{ metric }}"></canvas>
+    
+    <div class="card-body">
+        <div class="flex flex-wrap gap-4 mb-4 items-center">
+            <div class="flex items-center gap-2">
+                <label for="timeRangeSelect" class="font-medium text-sm">Časové okno:</label>
+                <select id="timeRangeSelect" class="btn btn-outline" style="padding: 4px 8px;">
+                    <option value="24 hours">Posledních 24 hodin</option>
+                    <option value="7 days" selected>Posledních 7 dní</option>
+                    <option value="30 days">Posledních 30 dní</option>
+                </select>
             </div>
-        {% else %}
-            <p>Nenalezeny žádné metriky k vykreslení.</p>
-        {% endfor %}
-    </div>
+            <div class="flex items-center gap-2">
+                <label for="granularitySelect" class="font-medium text-sm">Granularita:</label>
+                <select id="granularitySelect" class="btn btn-outline" style="padding: 4px 8px;">
+                    <option value="5 minutes">5 minut</option>
+                    <option value="1 hour" selected>1 hodina</option>
+                    <option value="1 day">1 den</option>
+                </select>
+            </div>
+        </div>
 
+        <div id="recommendation-panel" class="mb-4" style="background: rgba(16, 185, 129, 0.05); padding: 16px; border-radius: 8px; border-left: 4px solid var(--color-primary);">
+            <h3 class="mb-2" style="color: var(--color-primary);">FinOps Doporučení (Rightsizing)</h3>
+            <div id="recommendation-content" class="text-sm">
+                <p>Počítám doporučení</p>
+            </div>
+        </div>
+
+        <div id="charts-container" class="grid grid-cols-2">
+            {% for metric in available_metrics %}
+                <div class="card p-2" style="box-shadow: none;">
+                    <h3 class="text-sm text-muted mb-2 text-center">{{ metric }}</h3>
+                    <canvas class="metric-chart" data-entity="{{ entity_id }}" data-metric="{{ metric }}"></canvas>
+                </div>
+            {% else %}
+                <p class="text-muted">Nenalezeny žádné metriky k vykreslení.</p>
+            {% endfor %}
+        </div>
+    </div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>

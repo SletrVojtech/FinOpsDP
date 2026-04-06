@@ -1,41 +1,44 @@
-<div>
-
-    <button hx-get="/ui/scope/{{ scope_id }}?{{ current_qs }}" hx-target="#app-content" hx-swap="innerHTML">
+<div class="mb-4">
+    <button class="btn btn-outline mb-4" hx-get="/ui/scope/{{ scope_id }}?{{ current_qs }}" hx-target="#app-content" hx-swap="innerHTML">
         ⬅ Zpět na seznam zdrojů
     </button>
-
     <h2>Chargeback & Odhad nákladů</h2>
+</div>
 
-    <div>
-
-        <div>
-            <label for="monthSelect">Zúčtovací měsíc:</label>
-            <input type="month" id="monthSelect">
-
-            <span>
-                Rozpočet: <strong id="budgetAmountText" style="color: #000000;">Načítám...</strong>
-                <button onclick="promptForBudget()"> Upravit</button>
-            </span>
+<div class="card mb-4">
+    <div class="card-header flex justify-between items-center">
+        <div class="flex items-center gap-2">
+            <label for="monthSelect" class="font-medium text-sm">Zúčtovací měsíc:</label>
+            <input type="month" id="monthSelect" class="btn btn-outline" style="padding: 4px 8px;">
         </div>
-
-        <div style="font-size: 1.2em;">
-            Odhad na konci měsíce: <strong id="projectedTotalDisplay" style="color: #000000;">---</strong>        <div style="margin-top: 6px;">
-            <button id="btn-classic" onclick="setChartMode('classic')">Celkový</button>
-            <button id="btn-stacked" onclick="setChartMode('stacked')">Kategorie</button>
-            <button id="btn-tag" onclick="setChartMode('tag')">Podle Tagu</button>
-
-            <select id="tagKeySelect" style="display: none; margin-left:10px; padding: 4px;" onchange="renderChargebackChart()">
-                {% for tag in top_tags %}
-                    <option value="{{ tag.key }}">{{ tag.key }}</option>
-                {% endfor %}
-            </select>
+        <div class="text-sm">
+            Rozpočet: <strong id="budgetAmountText" class="text-primary">Načítám</strong>
+            <button class="btn btn-ghost btn-sm ml-2" onclick="promptForBudget()">Upravit</button>
         </div>
     </div>
+    
+    <div class="card-body">
+        <div class="flex justify-between items-center mb-4">
+            <div style="font-size: 1.1rem;">
+                Odhad na konci měsíce: <strong id="projectedTotalDisplay" class="text-primary">---</strong>
+            </div>
+            <div class="flex gap-2">
+                <button id="btn-classic" class="btn btn-primary" onclick="setChartMode('classic')">Celkový</button>
+                <button id="btn-stacked" class="btn btn-outline" onclick="setChartMode('stacked')">Kategorie</button>
+                <button id="btn-tag" class="btn btn-outline" onclick="setChartMode('tag')">Podle Tagu</button>
+                
+                <select id="tagKeySelect" class="btn btn-outline" style="display: none; padding: 4px 8px;" onchange="renderChargebackChart()">
+                    {% for tag in top_tags %}
+                        <option value="{{ tag.key }}">{{ tag.key }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
 
-    <div style="margin-top: 30px; height: 500px;">
-        <canvas id="chargebackChart"></canvas>
+        <div style="height: 500px; width: 100%;">
+            <canvas id="chargebackChart"></canvas>
+        </div>
     </div>
-
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>

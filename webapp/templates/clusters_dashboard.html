@@ -1,31 +1,18 @@
-<!DOCTYPE html>
-<html lang="cs">
-<head>
-    <meta charset="UTF-8">
-    <title>Výběr clusteru</title>
-    <style>
-        body { font-family: sans-serif; padding: 20px; }
-        ul { list-style-type: none; padding: 0; }
-        li { margin-bottom: 10px; }
-        a { text-decoration: none; color: #0056b3; font-weight: bold; }
-        a:hover { text-decoration: underline; }
-    </style>
-</head>
-<body>
+<div class="mb-4">
+    <h2>Vyberte Kubernetes Cluster</h2>
+    <p class="text-muted">Vyberte cluster pro zobrazení denních nákladů podle namespace:</p>
+</div>
 
-    <h2>FinOps: Rozpad nákladů na Kubernetes clustery</h2>
-    <a href="/">Zpět</a>
-    <p>Vyberte cluster pro zobrazení denních nákladů podle namespace:</p>
-
-    <ul>
+<div class="card">
+    <ul class="list-group">
         {% for cluster in clusters %}
-        <li>
-            <a href="/ui/clusters/{{ cluster.id }}/costs">{{ cluster.name }}</a>
+        <li class="list-item">
+            <a href="#" hx-get="/ui/clusters/{{ cluster.id }}/costs" hx-target="#app-content" class="nav-link font-medium">
+                {{ cluster.name }}
+            </a>
         </li>
         {% else %}
-        <li>Nenalezeny žádné clustery.</li>
+        <li class="list-item text-muted">Nenalezeny žádné clustery.</li>
         {% endfor %}
     </ul>
-
-</body>
-</html>
+</div>

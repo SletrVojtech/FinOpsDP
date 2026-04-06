@@ -1,12 +1,25 @@
-<h2>KRR Doporučení - Výběr clusteru</h2>
-<p><a href="/">← Zpět</a></p>
-<ul>
-    {% for cluster in clusters %}
-    <li>
-        <a href="/ui/krr/{{ cluster.cluster_id }}">{{ cluster.cluster_name }}</a>
-        <small>(Poslední sken: {{ cluster.latest_scan.strftime('%Y-%m-%d %H:%M') }})</small>
-    </li>
-    {% else %}
-    <li>Zatím žádná data z KRR.</li>
-    {% endfor %}
-</ul>
+<div class="mb-4">
+    <h2>KRR Doporučení - Výběr clusteru</h2>
+    <button class="btn btn-outline mt-2" hx-get="/ui/scope/" hx-target="#app-content">
+        ⬅ Zpět
+    </button>
+</div>
+
+<div class="card" style="max-width: 600px;">
+    <ul class="list-group" style="padding: 16px;">
+        {% for cluster in clusters %}
+        <li class="list-item flex justify-between items-center" style="margin: 0; padding: 12px 0; border: none; border-bottom: 1px solid var(--color-border); border-radius: 0; background: transparent;">
+            <a href="#" hx-get="/ui/krr/{{ cluster.cluster_id }}" hx-target="#app-content" class="nav-link font-medium" style="font-size: 1.1rem;">
+                {{ cluster.cluster_name }}
+            </a>
+            <span class="text-sm text-muted">
+                (Poslední sken: {{ cluster.latest_scan.strftime('%Y-%m-%d %H:%M') }})
+            </span>
+        </li>
+        {% else %}
+        <li class="list-item text-muted" style="border: none; background: transparent;">
+            Zatím žádná data z KRR.
+        </li>
+        {% endfor %}
+    </ul>
+</div>

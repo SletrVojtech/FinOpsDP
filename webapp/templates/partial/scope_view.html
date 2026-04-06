@@ -1,39 +1,39 @@
-<div class="chain">
-    <a hx-get="/ui/scope/" hx-target="#app-content" hx-swap="innerHTML">Vše</a>
+<div class="chain mb-4 flex items-center gap-2">
+    <a hx-get="/ui/scope/" hx-target="#app-content" hx-swap="innerHTML" class="text-sm">Vše</a>
     {% for node in chain %}
-        <span> > </span>
-        <a hx-get="/ui/scope/{{ node.id }}" hx-target="#app-content" hx-swap="innerHTML">{{ node.name }}</a>
+        <span class="text-muted"> / </span>
+        <a hx-get="/ui/scope/{{ node.id }}" hx-target="#app-content" hx-swap="innerHTML" class="text-sm">{{ node.name }}</a>
     {% endfor %}
 </div>
 
 {% if active_tags %}
-<div>
-    <strong>Aktivní filtry:</strong>
-    <div>
+<div class="mb-4">
+    <strong class="text-sm block mb-2">Aktivní filtry:</strong>
+    <div class="flex flex-wrap gap-2 mb-2">
         {% for key, value in active_tags.items() %}
-            <span>
+            <span class="badge badge-info" style="font-size: 0.85rem; padding: 4px 10px;">
                 {{ key }}: <strong>{{ value }}</strong>
                 
                 <a hx-get="/ui/scope/{{ current_scope_id }}?{% for k, v in active_tags.items() %}{% if k != key %}tag_{{ k }}={{ v }}&{% endif %}{% endfor %}"
-                   hx-target="#app-content" hx-swap="innerHTML">
+                   hx-target="#app-content" hx-swap="innerHTML" class="ml-2 hover:text-red-500 cursor-pointer" style="margin-left: 8px;">
                    ✖
                 </a>
             </span>
         {% endfor %}
     </div>
     
-    <a hx-get="/ui/scope/{{ current_scope_id }}" hx-target="#app-content" hx-swap="innerHTML">
+    <a hx-get="/ui/scope/{{ current_scope_id }}" hx-target="#app-content" hx-swap="innerHTML" class="text-sm text-muted hover:underline">
        Zrušit všechny filtry
     </a>
 </div>
 {% endif %}
 
 <div class="filter-bar">
-    <strong>Přidat filtr podle tagu:</strong>
+    <strong class="text-sm">Přidat filtr podle tagu:</strong>
     <select name="tag_key"
             hx-get="/ui/tag_values?scope_id={{ current_scope_id }}&current_qs={{ current_qs | urlencode }}"
             hx-target="#tag-values-container"
-            hx-trigger="change">
+            hx-trigger="change" class="btn btn-outline ml-2" style="padding: 4px 8px;">
         <option value="">Vyberte další tag</option>
         {% for tag in top_tags %}
             {% if tag.key not in active_tags %}
@@ -43,49 +43,49 @@
         {% endfor %}
     </select>
     
-    <div id="tag-values-container" style="margin-top: 10px;"></div>
+    <div id="tag-values-container" style="margin-top: 12px;"></div>
 </div>
 
-<div style="margin-bottom: 20px;">
-    <button hx-get="/ui/chargeback?scope_id={{ current_scope_id if current_scope_id else '' }}&current_qs={{ current_qs | urlencode }}"
+<div class="mb-4">
+    <button class="btn btn-primary" hx-get="/ui/chargeback?scope_id={{ current_scope_id if current_scope_id else '' }}&current_qs={{ current_qs | urlencode }}"
             hx-target="#app-content"
             hx-swap="innerHTML">
         Zobrazit Chargeback pro tento výběr
     </button>
 </div>
 
-<ul class="list">
-    {% for item in items %}
-        {% if item.parent_id == current_scope_id%}
-        <li>
-            <div>
-            {% if item.has_children and not active_tags %}
-                    <button class="drill-btn"
-                            hx-get="/ui/scope/{{ item.id }}" 
-                            hx-target="#app-content" 
-                            hx-swap="innerHTML">
-                        {{ item.name }}
-                    </button>
-                {% else %}
-                    <span>{{ item.name }}</span>
-                {% endif %}
-            <span>{{ item.type }}</span>
-            </div>
-            <div> 
-                <div>
-                {% if item.has_metrics %}
-                    <button hx-get="/ui/metrics/{{ item.id }}?scope_id={{ current_scope_id }}&current_qs={{ current_qs | urlencode }}"
-                            hx-target="#app-content"
-                            hx-swap="innerHTML">
-                        Zobrazit metriky
-                    </button>
-                {% endif %}
-            </div>
-            </div>
-
-        </li>
-        {% endif %}
-    {% else %}
-        <li>Této kombinaci filtrů nevyhovují žádné zdroje.</li>
-    {% endfor %}
-</ul>
+<div class="card">
+    <ul class="list-group p-0 m-0" style="border: none;">
+        {% for item in items %}
+            {% if item.parent_id == current_scope_id%}
+            <li class="list-item flex justify-between items-center" style="border-radius: 0; border: none; border-bottom: 1px solid var(--color-border); margin: 0;">
+                <div class="flex items-center gap-4">
+                    {% if item.has_children and not active_tags %}
+                            <button class="btn btn-ghost font-medium" style="padding: 4px 8px;"
+                                    hx-get="/ui/scope/{{ item.id }}" 
+                                    hx-target="#app-content" 
+                                    hx-swap="innerHTML">
+                                {{ item.name }}
+                            </button>
+                        {% else %}
+                            <span class="font-medium px-2">{{ item.name }}</span>
+                        {% endif %}
+                    <span class="badge badge-neutral">{{ item.type }}</span>
+                </div>
+                <div> 
+                    {% if item.has_metrics %}
+                        <button class="btn btn-outline text-sm" style="padding: 4px 10px;"
+                                hx-get="/ui/metrics/{{ item.id }}?scope_id={{ current_scope_id }}&current_qs={{ current_qs | urlencode }}"
+                                hx-target="#app-content"
+                                hx-swap="innerHTML">
+                            Zobrazit metriky
+                        </button>
+                    {% endif %}
+                </div>
+            </li>
+            {% endif %}
+        {% else %}
+            <li class="list-item text-muted text-center" style="border: none;">Této kombinaci filtrů nevyhovují žádné zdroje.</li>
+        {% endfor %}
+    </ul>
+</div>

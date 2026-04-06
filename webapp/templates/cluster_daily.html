@@ -1,34 +1,33 @@
-<!DOCTYPE html>
-<html lang="cs">
-<head>
-    <meta charset="UTF-8">
-    <title>Náklady: {{ cluster_name }}</title>
-    <style>
-        body { font-family: sans-serif; padding: 20px; }
-        .chart-container { width: 100%; max-width: 1000px; margin: 0 auto; margin-top: 30px;}
-    </style>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-</head>
-<body>
+<div class="mb-4">
+    <button class="btn btn-outline" hx-get="/ui/clusters" hx-target="#app-content">
+        &larr; Zpět na seznam clusterů
+    </button>
+</div>
 
-    <a href="/ui/clusters">Zpět na seznam clusterů</a>
-    <h2 id="monthTitle">Denní náklady na namespaces ({{ month }})</h2>
-    <h3>Cluster: {{ cluster_name }}</h3>
-
-    <div style="margin-bottom: 20px;">
-        <label for="monthSelect">Zúčtovací měsíc:</label>
-        <input type="month" id="monthSelect" value="{{ month }}">
+<div class="card mb-4">
+    <div class="card-header flex justify-between items-center">
+        <div>
+            <h2 id="monthTitle" class="mb-0">Denní náklady na namespaces ({{ month }})</h2>
+            <div class="text-muted text-sm mt-1">Cluster: {{ cluster_name }}</div>
+        </div>
+        <div class="flex items-center gap-2">
+            <label for="monthSelect" class="font-medium text-sm">Zúčtovací měsíc:</label>
+            <input type="month" id="monthSelect" value="{{ month }}" class="btn btn-outline" style="padding: 4px 8px;">
+        </div>
     </div>
-
-    <div class="chart-container">
-        <canvas id="costChart"></canvas>
+    <div class="card-body">
+        <div class="chart-container" style="width: 100%; margin: 0 auto;">
+            <canvas id="costChart"></canvas>
+        </div>
     </div>
+</div>
 
-    <script>
+<script>
+    (function() {
         let costChartInstance = null;
         const colors = [
-            '#4e79a7', '#f28e2c', '#e15759', '#76b7b2', '#59a14f', 
-            '#edc949', '#af7aa1', '#ff9da7', '#9c755f', '#bab0ab'
+            '#10b981', '#3b82f6', '#8b5cf6', '#f59e0b', '#ef4444', 
+            '#14b8a6', '#6366f1', '#ec4899', '#f97316', '#64748b'
         ];
 
         function buildChart(chartData) {
@@ -40,7 +39,10 @@
                 dataset.backgroundColor = colors[index % colors.length];
             });
 
-            const ctx = document.getElementById('costChart').getContext('2d');
+            const canvas = document.getElementById('costChart');
+            if (!canvas) return; // HTMX cleanup guard
+            const ctx = canvas.getContext('2d');
+            
             costChartInstance = new Chart(ctx, {
                 type: 'bar',
                 data: {
@@ -50,10 +52,7 @@
                 options: {
                     responsive: true,
                     plugins: {
-                        title: {
-                            display: true,
-                            text: 'Denní náklady podle Namespaces'
-                        },
+                        legend: { position: 'bottom' },
                         tooltip: {
                             mode: 'index',
                             intersect: false,
@@ -72,45 +71,44 @@
                         }
                     },
                     scales: {
-                        x: {
-                            stacked: true,
-                        },
-                        y: {
-                            stacked: true,
-                            beginAtZero: true
-                        }
+                        x: { stacked: true },
+                        y: { stacked: true, beginAtZero: true }
                     }
                 }
             });
         }
 
         async function updateData() {
-            const month = document.getElementById('monthSelect').value;
+            const monthInput = document.getElementById('monthSelect');
+            if(!monthInput) return;
+            const month = monthInput.value;
             const clusterId = "{{ cluster_id }}";
             const url = `/ui/clusters/${clusterId}/costs?target_month=${month}`;
 
             try {
                 const response = await fetch(url, {
-                    headers: {
-                        'Accept': 'application/json'
-                    }
+                    headers: { 'Accept': 'application/json' }
                 });
                 if (!response.ok) throw new Error('Network response was not ok');
                 const data = await response.json();
                 buildChart(data.chart_data);
                 
-                // Update title with month
-                document.getElementById('monthTitle').innerText = `Denní náklady na namespaces (${data.month})`;
+                const titleNode = document.getElementById('monthTitle');
+                if(titleNode) {
+                    titleNode.innerText = `Denní náklady na namespaces (${data.month})`;
+                }
             } catch (error) {
                 console.error('Error fetching cluster data:', error);
             }
         }
 
-        document.getElementById('monthSelect').addEventListener('change', updateData);
+        const selectNode = document.getElementById('monthSelect');
+        if(selectNode) {
+            selectNode.addEventListener('change', updateData);
+        }
 
-        // Initial render
-        buildChart({{ chart_data | tojson | safe }});
-    </script>
-
-</body>
-</html>
+        // Initial render using chart_data injected by Jinja
+        const initialData = {{ chart_data | tojson | safe }};
+        buildChart(initialData);
+    })();
+</script>

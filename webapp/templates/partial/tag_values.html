@@ -1,13 +1,13 @@
-<div style="display: flex; gap: 8px; flex-wrap: wrap;">
+<div class="flex flex-wrap gap-2">
     {% for val in values %}
         <button 
             hx-get="/ui/scope/{{ scope_id }}?{{ current_qs }}&tag_{{ tag_key }}={{ val.value }}" 
             hx-target="#app-content" 
             hx-swap="innerHTML"
-            style="padding: 5px 10px; background: #fff; border: 1px solid #ccc; border-radius: 15px; cursor: pointer;">
+            class="badge badge-neutral hover:bg-gray-200 cursor-pointer border border-transparent hover:border-gray-300 transition-all font-medium py-1 px-3">
             
             {% if val.value == "" %}<i>(Bez hodnoty)</i>{% else %}{{ val.value }}{% endif %}
-            <span>({{ val.count }})</span>
+            <span class="text-muted ml-1">({{ val.count }})</span>
         </button>
     {% endfor %}
 </div>

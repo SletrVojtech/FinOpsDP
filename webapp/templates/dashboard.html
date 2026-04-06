@@ -1,38 +1,7 @@
-<!DOCTYPE html>
-<html lang="cs">
-<head>
-    <meta charset="UTF-8">
-    <title>FinOps Platforma</title>
-    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
-    <style>
-        body { font-family: Arial, sans-serif; padding: 20px; }
-        .chain { margin-bottom: 15px; font-weight: bold; }
-        .chain a { cursor: pointer; color: blue; text-decoration: underline; }
-        .filter-bar { background: #f4f4f4; padding: 10px; margin-bottom: 20px; border-radius: 5px; }
-        ul.list { list-style-type: none; padding: 0; }
-        ul.list li { margin: 5px 0; padding: 8px; border: 1px solid #ddd; background: #fafafa; }
-        .drill-btn { cursor: pointer; background: none; border: none; color: blue; font-weight: bold; }
-    </style>
-</head>
-<body>
-    <h1>FinOps Scope Explorer</h1>
-    <button hx-get="/ui/allocations" hx-target="#app-content" hx-swap="innerHTML" style="margin-bottom: 15px;">
-    Spravovat sdílené náklady
-    </button>
+{% extends "base.html" %}
 
-    <button hx-get="/ui/krr" hx-target="#app-content" hx-swap="innerHTML" style="margin-bottom: 15px;">
-    KRR Dashboard
-    </button>
-
-    <button hx-get="/ui/clusters" hx-target="#app-content" hx-swap="innerHTML" style="margin-bottom: 15px;">
-    Kubernetes
-    </button>
-
-
-    <div id="app-content" hx-get="/ui/scope/" hx-trigger="load" hx-swap="innerHTML">
-        Načítám data cloudu...
-    </div>
-
-</body>
-</html>
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+{% block content %}
+<div id="app-content" hx-get="/ui/scope/" hx-trigger="load" hx-swap="innerHTML">
+    <div class="text-muted">Načítám data cloudu</div>
+</div>
+{% endblock %}
