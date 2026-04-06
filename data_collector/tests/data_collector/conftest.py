@@ -1,3 +1,5 @@
 import os
 
 os.environ["AZURE_SUBSCRIPTION_ID"] = "00000000-0000-0000-0000-000000000000"
+os.environ["RMQ_USER"] = "user"
+os.environ["RMQ_PASSWORD"] = "password"

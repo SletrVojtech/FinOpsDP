@@ -13,11 +13,16 @@ class RabbitMQClient:
     with added methods for using the 'with' clause
     """
     def __init__(self):
-        self.user = os.getenv('RMQ_USER', 'user')
-        self.password = os.getenv('RMQ_PASSWORD', 'password')
+        self.user = os.getenv('RMQ_USER')
+        self.password = os.getenv('RMQ_PASSWORD')
         self.host = os.getenv('RMQ_HOST', 'localhost')
         self.port = int(os.getenv('RMQ_PORT', 5672))
+        
+        if not self.user or not self.password:
+            raise ValueError("RabbitMQ environment variables RMQ_USER and RMQ_PASSWORD are required but not provided.")
+
         self.connection: Optional[pika.BlockingConnection] = None
+
         self.channel: Optional[pika.channel.Channel] = None
 
     def connect(self):
