@@ -29,18 +29,24 @@ import yaml
 
 
 def get_db_connection():
+    for var in ("DB_HOST", "DB_USER", "DB_PASSWORD", "DB_NAME"):
+        if not os.getenv(var):
+            raise RuntimeError(f"Missing required env-var: {var}")
     return psycopg2.connect(
-        host=os.getenv("DB_HOST", "localhost"),
+        host=os.environ["DB_HOST"],
         port=os.getenv("DB_PORT", "5432"),
-        user=os.getenv("DB_USER", "finops"),
-        password=os.getenv("DB_PASSWORD", "finops_password"),
-        database=os.getenv("DB_NAME", "finops_db")
+        user=os.environ["DB_USER"],
+        password=os.environ["DB_PASSWORD"],
+        database=os.environ["DB_NAME"]
     )
 
 def get_mq_channel():
+    for var in ("RMQ_USER", "RMQ_PASSWORD"):
+        if not os.getenv(var):
+            raise RuntimeError(f"Missing required env-var: {var}")
     credentials = pika.PlainCredentials(
-        os.getenv("RMQ_USER", "finops"), 
-        os.getenv("RMQ_PASSWORD", "finops_password")
+        os.environ["RMQ_USER"],
+        os.environ["RMQ_PASSWORD"]
     )
     connection = pika.BlockingConnection(
         pika.ConnectionParameters(
@@ -150,17 +156,23 @@ def main():
     args = parser.parse_args()
 
     if args.command == "loader":
-        log.info("DB loader")
-        db_conn = get_db_connection()
-        mq_conn, mq_channel = get_mq_channel()
+        log.info("DB loader starting")
+        db_conn = None
+        mq_conn = None
         try:
+            db_conn = get_db_connection()
+            mq_conn, mq_channel = get_mq_channel()
             loader = DBLoader(db_conn, mq_channel)
             loader.start_consuming(queue_name="data_ingestion")
         except KeyboardInterrupt:
-            log.info("Closing")
+            log.info("Closing (KeyboardInterrupt)")
+        except Exception as e:
+            log.error(f"Failed to start loader: {e}", exc_info=True)
         finally:
-            db_conn.close()
-            mq_conn.close()
+            if db_conn:
+                db_conn.close()
+            if mq_conn:
+                mq_conn.close()
             
     elif args.command == "scheduler":
         try:

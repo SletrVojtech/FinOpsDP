@@ -1,4 +1,6 @@
 import json
+import os
+import sys
 from rabbitmq.message import IngestionMessage
 from catalog_collector.pricing_collector import AWSPricingDownloader, AzurePricingDownloader
 from catalog_collector.hardware_collector import AWSHardwareDownloader, AzureHardwareDownloader
@@ -9,6 +11,10 @@ from catalog_collector.message import PricingRecord
 from typing import List
 
 load_dotenv()
+
+_AZURE_SUB_ID = os.getenv("AZURE_SUBSCRIPTION_ID")
+if not _AZURE_SUB_ID:
+    sys.exit("[catalog_collector] Missing required env-var: AZURE_SUBSCRIPTION_ID")
 
 def deduplicate_pricing_records(pricing_records: List[PricingRecord]) -> List[PricingRecord]:
     """
@@ -41,7 +47,7 @@ def run_catalog_collector():
     credential = DefaultAzureCredential()
     token = credential.get_token("https://management.azure.com/.default").token
     
-    azure_hw = AzureHardwareDownloader("9e97b1e3-0905-4d1f-b923-d050f30d1204", token)
+    azure_hw = AzureHardwareDownloader(_AZURE_SUB_ID, token)
     azure_price = AzurePricingDownloader()
     
     # Get HW info
