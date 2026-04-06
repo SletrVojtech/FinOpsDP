@@ -55,7 +55,10 @@ class BaseProcessor(ABC):
             result_id = result[0]
         else:
             self.cursor.execute("SELECT Id FROM Entities WHERE ExternalId = %s;", (ext_id.lower(),))
-            result_id = self.cursor.fetchone()[0]
+            res = self.cursor.fetchone()
+            if not res:
+                raise RuntimeError(f"Entity {ext_id} not found after UPSERT failure.")
+            result_id = res[0]
         
         if cache is not None:
             cache[ext_id.lower()] = result_id

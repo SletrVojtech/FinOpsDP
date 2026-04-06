@@ -39,5 +39,5 @@ class DBLoader:
             
         except Exception as e:
             self.db.rollback()
-            log.error(f"Exception during message processing: {e}")
+            log.error(f"Exception during message processing: {e}", exc_info=True)
             ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)

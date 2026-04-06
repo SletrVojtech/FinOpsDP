@@ -9,16 +9,24 @@ log = logging.getLogger('metrics_processor')
 @register_processor("custodian")
 class MetricsProcessor(BaseProcessor):
     """
-    Class to process measured metrics by Custodian and insert into DB.
+    Handles the ingestion of resource metrics collected by Cloud Custodian.
+    Responsible for resolving cloud-native IDs into internal entity IDs, 
+    maintaining metadata consistency via hashing, and bulk-inserting time-series data.
     """
 
     def process(self, envelope):
+        """
+        Main entry point for processing a metrics envelope.
+        Extracts resource metadata, calculates a hash, resolves the entity, 
+        and triggers bulk insertion of datapoints.
+        """
         payload_data = envelope.payload
         
         provider = payload_data['provider']
         resource_id = payload_data['resource_id']
         
-        # Compute hash for resource metadata, replace if differs.
+        # Compute hash for resource metadata. This allows us to skip unnecessary
+        # DB updates if tags and extras haven't changed since the last collection.
         metadata_str = json.dumps({"tags": payload_data.get('tags'),
                                     "extras": payload_data.get('extras')},
                                     sort_keys=True)
