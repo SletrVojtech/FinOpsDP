@@ -397,9 +397,10 @@ def calculate_chargeback_forecast(cursor, scope_id: int, active_tags: dict,
         # If prediction wasn't needed, drop the future forecast
         if days_to_predict <= 0:
             forecast_df = pd.DataFrame()
+       
     except Exception as e:
         # Log the failure for StatsForecast
-        logger.error("StatsForecast failed, using SMA fallback: %s", e, exc_info=True)
+        logger.error("StatsForecast failed, using SMA fallback: %s", scope_id)
         ml_success = False
         forecast_df = pd.DataFrame()
         fitted_df = pd.DataFrame()

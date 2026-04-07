@@ -1,4 +1,4 @@
-run_frequency_hours: 1
+run_frequency_hours: 2
 granularity: "PT5M"
 measure:
   - resource: aws.ec2

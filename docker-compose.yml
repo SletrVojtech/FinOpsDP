@@ -78,6 +78,8 @@ services:
     env_file:
       - .env
       - data_collector/.env.collector
+    environment:
+      KUBECONFIG: /root/.kube/config
     volumes:
       - type: bind
         source: "${KUBECONFIG_PATH}"
@@ -99,6 +101,8 @@ services:
     env_file:
       - .env
       - data_collector/.env.collector
+    environment:
+      KUBECONFIG: /root/.kube/config
     depends_on:
       db_init:
         condition: service_completed_successfully
@@ -108,6 +112,35 @@ services:
       - ${KUBECONFIG_PATH}:/root/.kube/config:ro
       - /var/run/docker.sock:/var/run/docker.sock
     command: ["python3", "run_krr.py"]
+
+  webapp:
+    build:
+      context: ./webapp
+      dockerfile: Dockerfile
+    container_name: finops_webapp
+    env_file:
+      - .env
+      - webapp/.env.web
+    ports:
+      - "${WEB_HOST_PORT:-8080}:8080"
+    restart: unless-stopped
+    depends_on:
+      db_init:
+        condition: service_completed_successfully
+  
+  forecast_worker:
+    build: 
+      context: ./webapp
+      dockerfile: Dockerfile
+    container_name: finops_forecast_worker
+    env_file:
+      - .env
+      - webapp/.env.web
+    command: ["python3", "run_worker.py", "--job", "fbad"]
+    restart: unless-stopped
+    depends_on:
+      db_init:
+        condition: service_completed_successfully
 
 volumes:
   timescaledb_data:
