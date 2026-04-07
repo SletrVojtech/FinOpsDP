@@ -98,10 +98,13 @@ def api_set_budget(request: Request,payload: BudgetRequest,scope_id: int = 0,
 @router.post("/allocations")
 def api_add_allocation(request: Request, payload: allocations.AllocationRequest, cursor = Depends(get_db_cursor)):
     """Save a new allocation rule."""
-    allocations.add_allocation_rule(
-        cursor, payload.rule_name, payload.source_tags, payload.target_tags, payload.percentage
-    )
-    cursor.connection.commit()
+    try:
+        allocations.add_allocation_rule(
+            cursor, payload.rule_name, payload.source_tags, payload.target_tags, payload.percentage
+        )
+        cursor.connection.commit()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     return {"status": "success"}
 
 @router.delete("/allocations/{rule_id}")
