@@ -120,6 +120,15 @@ SCHEMA_DEFINITIONS = {
         Percentage DECIMAL(5,2) NOT NULL CHECK (Percentage > 0 AND Percentage <= 100)
     );
     """,
+    "downsizingrules":"""
+    CREATE TABLE DownsizingRules (
+        Id SERIAL PRIMARY KEY,
+        ScopeId INTEGER REFERENCES Entities(Id),
+        Tags JSONB,
+        ExcludedPatterns JSONB,
+        UNIQUE(ScopeId, Tags)
+    );
+    """,
     "kuberecommendations":"""
     CREATE TABLE KubeRecommendations (
          Id SERIAL PRIMARY KEY,

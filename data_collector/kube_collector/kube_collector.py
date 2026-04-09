@@ -15,8 +15,11 @@ class KubePrometheusCollector:
         with open(config_path, 'r') as f:
             self.config = yaml.safe_load(f)
         self.hours_back = hours_back
-        
-        # Define queries for cpu and mem requests.
+
+    def set_metrics(self, labels: list):
+        """Set the metrics to collect."""
+        list_of_labels = ",".join([f"label_{label}" for label in labels]) 
+
         self.metrics_to_collect = [
             {
                 "resource": "cpu",
@@ -24,13 +27,13 @@ class KubePrometheusCollector:
                 "query": '(sum by (namespace) (avg_over_time(kube_pod_container_resource_requests{resource="cpu"}[1h]))'
                 ' unless on(namespace) kube_namespace_labels)'
                 'or (sum by (namespace) (avg_over_time(kube_pod_container_resource_requests{resource="cpu"}[1h]))'
-                ' * on(namespace) group_left() kube_namespace_labels)'
+                f' * on(namespace) group_left({list_of_labels}) kube_namespace_labels)'
             },
             {
                 "resource": "memory",
                 "metric_name": "memory_requests_bytes",
                 "query": '(sum by (namespace) (avg_over_time(kube_pod_container_resource_requests{resource="memory"}[1h]))'
-                ' * on(namespace) group_left() kube_namespace_labels)'
+                f' * on(namespace) group_left({list_of_labels}) kube_namespace_labels)'
                 'or (sum by (namespace) (avg_over_time(kube_pod_container_resource_requests{resource="memory"}[1h]))'
                 ' unless on(namespace) kube_namespace_labels)'
             }
@@ -48,11 +51,15 @@ class KubePrometheusCollector:
         return all_messages
 
     def _process_cluster(self, cluster: dict):
-        provider = cluster['provider']
-        account_id = cluster['account_id']
-        cluster_name = cluster['cluster_name']
-        cluster_id = cluster['cluster_resource_id']
-        context = cluster['context']
+        provider = cluster.get('provider')
+        account_id = cluster.get('account_id')
+        cluster_name = cluster.get('cluster_name')
+        cluster_id = cluster.get('cluster_resource_id')
+        context = cluster.get('context')
+
+        if not all([provider, account_id, cluster_name, cluster_id, context]):
+            log.error(f"Missing required fields for cluster: {cluster}")
+            return []
         
         # Prometheus variables
         prom_conf = cluster.get('prometheus', {})
@@ -60,6 +67,9 @@ class KubePrometheusCollector:
         service = prom_conf.get('service_name', 'prometheus-kube-prometheus-prometheus')
         port = prom_conf.get('port', '9090')
 
+        labels = cluster.get('labels', [])
+        self.set_metrics(labels)
+        
         log.info(f"Switching to context: {context}")
         api_client = config.new_client_from_config(context=context)
         v1 = client.CoreV1Api(api_client=api_client)
@@ -128,7 +138,6 @@ class KubePrometheusCollector:
             ns = metric_labels.get('namespace')
             if not ns:
                 continue
-
             # Add custom tags and merge with labels from Prometheus
             tags = {"cluster": cluster_name, "namespace": ns}
             for key, val in metric_labels.items():
