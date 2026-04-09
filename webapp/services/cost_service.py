@@ -241,10 +241,48 @@ def _prepare_dates_and_cutoff(cursor, target_month: str = None):
         
     return base_date, start_date, end_date, num_days, cutoff_date_obj, cutoff_day
 
+def _limit_breakdown_categories(breakdown_dict: dict, top_n: int = 5) -> dict:
+    """ Groups all but top N categories into 'other'. """
+    # If there are already few enough categories, just return
+    if len(breakdown_dict) <= top_n:
+        return breakdown_dict
+    
+    # Calculate total cost for each category for sorting
+    totals = {}
+    for cat, daily_costs in breakdown_dict.items():
+        totals[cat] = sum(daily_costs.values())
+        
+    # Sort categories by total cost descending
+    sorted_cats = sorted(totals.keys(), key=lambda x: totals[x], reverse=True)
+    
+    top_cats_list = sorted_cats[:top_n]
+    
+    new_breakdown = {cat: breakdown_dict[cat] for cat in top_cats_list}
+    
+    other_combined = {}
+    for cat in sorted_cats[top_n:]:
+        for d_str, cost in breakdown_dict[cat].items():
+            other_combined[d_str] = other_combined.get(d_str, 0.0) + cost
+            
+    if other_combined:
+        if "other" in new_breakdown:
+            # If 'other' was already in top N, merge the rest into it
+            existing_other = new_breakdown["other"].copy()
+            for d_str, cost in other_combined.items():
+                existing_other[d_str] = existing_other.get(d_str, 0.0) + cost
+            new_breakdown["other"] = existing_other
+        else:
+            new_breakdown["other"] = other_combined
+            
+    return new_breakdown
+
 def _build_response_payload(
     base_date, num_days, cutoff_day, cost_dict, future_forecasts, budget_amount, projected_total, anomaly_thresholds, breakdown_dict
 ) -> dict:
     """Consolidates cost and forecast data into a response dictionary for the UI."""
+    # Limit to top 5 categories to decrease cluttering
+    breakdown_dict = _limit_breakdown_categories(breakdown_dict, top_n=5)
+    
     breakdown_arrays: dict[str, list] = {cat: [] for cat in breakdown_dict}
 
     labels, actual_daily, actual_cumulative, forecast_cumulative, anomalies = [], [], [], [], []

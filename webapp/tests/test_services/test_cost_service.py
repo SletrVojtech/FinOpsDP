@@ -3,7 +3,7 @@ import pytest
 from datetime import date, datetime, timedelta
 from services.cost_service import (
     tags_match, _make_anomaly_entry, _prepare_dates_and_cutoff, 
-    get_aggregated_daily_costs
+    get_aggregated_daily_costs, _limit_breakdown_categories
 )
 from unittest.mock import MagicMock
 
@@ -154,3 +154,54 @@ def test_calculate_chargeback_forecast_sma_fallback(mocker):
     # SMA should be 100.0. Cumulative on day 16 should be (15 * 100) + 100 = 1600.
     assert res["forecast_cumulative"][15] == 1600.0 # Day 16 cumulative
     assert res["actual_daily"][14] == 100.0        # Day 15 actual
+
+def test_limit_breakdown_categories_no_limit():
+    """Test that categories are not limited if count <= top_n."""
+    data = {
+        "cat1": {"2026-03-01": 10.0},
+        "cat2": {"2026-03-01": 20.0}
+    }
+    res = _limit_breakdown_categories(data, top_n=5)
+    assert len(res) == 2
+    assert "cat1" in res
+    assert "cat2" in res
+
+def test_limit_breakdown_categories_with_limit():
+    """Test that categories are limited and summed into 'other'."""
+    data = {
+        "cat1": {"2026-03-01": 100.0},
+        "cat2": {"2026-03-01": 90.0},
+        "cat3": {"2026-03-01": 80.0},
+        "cat4": {"2026-03-01": 70.0},
+        "cat5": {"2026-03-01": 60.0},
+        "cat6": {"2026-03-01": 50.0},
+        "cat7": {"2026-03-01": 40.0}
+    }
+    # Limit to top 3
+    res = _limit_breakdown_categories(data, top_n=3)
+    
+    assert len(res) == 4 # top 3 + other
+    assert "cat1" in res
+    assert "cat2" in res
+    assert "cat3" in res
+    assert "other" in res
+    
+    # 'other' should be sum of cat4, cat5, cat6, cat7 = 70+60+50+40 = 220
+    assert res["other"]["2026-03-01"] == 220.0
+
+def test_limit_breakdown_categories_merge_into_existing_other():
+    """Test that leftovers are merged into 'other' if it was already in top N."""
+    data = {
+        "cat1": {"2026-03-01": 100.0},
+        "other": {"2026-03-01": 90.0},
+        "cat2": {"2026-03-01": 80.0}, # merge into other
+        "cat3": {"2026-03-01": 10.0} # merge into other
+    }
+    # Limit to top 2
+    res = _limit_breakdown_categories(data, top_n=2)
+    
+    assert len(res) == 2
+    
+    assert "cat1" in res
+    assert "other" in res
+    assert res["other"]["2026-03-01"] == 180.0
