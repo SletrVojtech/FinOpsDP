@@ -5,7 +5,7 @@ import pandas as pd
 from statsforecast import StatsForecast
 from statsforecast.models import AutoETS
 from crud import costs as costs_crud, allocations
-from services import kube_chargeback
+from services import kube_chargeback, currency
 
 logger = logging.getLogger(__name__)
 
@@ -42,15 +42,15 @@ def _make_anomaly_entry(date_str: str, daily_cost: float, thresh_data) -> dict:
 def get_aggregated_daily_costs_k8s(cursor, scope_id: int, active_tags: dict,
                                 start_date: date = None, end_date: date = None):
     """Aggregates daily costs for a given k8s."""
+    exch_rate = currency.get_usd_to_eur_rate()
     raw_data = costs_crud.get_daily_costs(cursor, scope_id, active_tags,
-                                           start_date=start_date, end_date=end_date)
+                                           start_date=start_date, end_date=end_date, exchange_rate=exch_rate)
     cost_dict = {row["date"]: row["cost"] for row in raw_data}
 
     if not active_tags:
         return cost_dict
     
     target_namespaces = costs_crud.get_namespaces_for_tags(cursor, active_tags)
-    print(target_namespaces)
     if target_namespaces:
         # Get a set of clusters needed to be queried.
         cluster_map = {}
@@ -60,11 +60,9 @@ def get_aggregated_daily_costs_k8s(cursor, scope_id: int, active_tags: dict,
             if cluster_id not in cluster_map:
                 cluster_map[cluster_id] = []
             cluster_map[cluster_id].append(ns_name)
-        print(cluster_map)
         for cluster_id, ns_names in cluster_map.items():
             # Daily costs for given cluster
-            cluster_raw_costs = costs_crud.get_daily_costs(cursor, cluster_id, {}, start_date=start_date, end_date=end_date)
-            print(cluster_raw_costs)
+            cluster_raw_costs = costs_crud.get_daily_costs(cursor, cluster_id, {}, start_date=start_date, end_date=end_date, exchange_rate=exch_rate)
             cluster_cost_dict = {row["date"]: row["cost"] for row in cluster_raw_costs}
             namespace_costs = kube_chargeback.get_daily_namespace_allocation(
                 cursor, 
@@ -128,15 +126,15 @@ def get_aggregated_daily_costs_k8s(cursor, scope_id: int, active_tags: dict,
 def get_aggregated_daily_costs(cursor, scope_id: int, active_tags: dict,
                                 start_date: date = None, end_date: date = None):
     """Aggregates daily costs for a given scope and tags."""
+    exch_rate = currency.get_usd_to_eur_rate()
     raw_data = costs_crud.get_daily_costs(cursor, scope_id, active_tags,
-                                           start_date=start_date, end_date=end_date)
+                                           start_date=start_date, end_date=end_date, exchange_rate=exch_rate)
     cost_dict = {row["date"]: row["cost"] for row in raw_data}
 
     if not active_tags:
         return cost_dict
     
     target_namespaces = costs_crud.get_namespaces_for_tags(cursor, active_tags)
-    print(target_namespaces)
     if target_namespaces:
         # Get a set of clusters needed to be queried.
         cluster_map = {}
@@ -146,7 +144,6 @@ def get_aggregated_daily_costs(cursor, scope_id: int, active_tags: dict,
             if cluster_id not in cluster_map:
                 cluster_map[cluster_id] = []
             cluster_map[cluster_id].append(ns_name)
-        print(cluster_map)
         for cluster_id, ns_names in cluster_map.items():
             # Daily costs for given cluster
             cursor.execute("SELECT ResourceName FROM Entities WHERE Id = %s", (cluster_id,))
@@ -185,7 +182,7 @@ def get_aggregated_daily_costs(cursor, scope_id: int, active_tags: dict,
         existing_dates = set(cost_dict.keys())
         for rule in applicable_rules:
             if rule["id"] not in source_costs:
-                s_data = costs_crud.get_daily_costs(cursor, 0, rule["source_tags"], start_date=start_date, end_date=end_date)
+                s_data = costs_crud.get_daily_costs(cursor, 0, rule["source_tags"], start_date=start_date, end_date=end_date, exchange_rate=exch_rate)
                 s_dict = {row["date"]: row["cost"] for row in s_data}
                 source_costs[rule["id"]] = s_dict
                 existing_dates.update(s_dict.keys())
@@ -218,8 +215,9 @@ def get_aggregated_daily_costs_by_category(
 ) -> dict:
     """Cloud costs by ServiceCategory + each matched K8s namespace as 'k8s:<name>'."""
     cat_dict: dict[str, dict[str, float]] = {}
+    exch_rate = currency.get_usd_to_eur_rate()
     for row in costs_crud.get_daily_costs_by_category(cursor, scope_id, active_tags,
-                                                       start_date=start_date, end_date=end_date):
+                                                       start_date=start_date, end_date=end_date, exchange_rate=exch_rate):
         d = cat_dict.setdefault(row["category"], {})
         d[row["date"]] = d.get(row["date"], 0.0) + row["cost"]
 
@@ -239,9 +237,10 @@ def get_aggregated_daily_costs_by_tag_key(
     """Cloud costs grouped by values of a given tag key + K8s namespace costs attributed to their own tag values."""
     tag_dict: dict[str, dict[str, float]] = {}
     
+    exch_rate = currency.get_usd_to_eur_rate()
     # Get raw cloud costs grouped by tag value
     for row in costs_crud.get_daily_costs_by_tag_key(cursor, scope_id, active_tags, tag_key,
-                                                     start_date=start_date, end_date=end_date):
+                                                     start_date=start_date, end_date=end_date, exchange_rate=exch_rate):
         d = tag_dict.setdefault(row["tag_value"], {})
         d[row["date"]] = d.get(row["date"], 0.0) + row["cost"]
 

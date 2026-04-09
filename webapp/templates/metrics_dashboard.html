@@ -179,8 +179,8 @@ async function renderAllCharts() {
                 contentDiv.innerHTML = `
                     <p><strong>Doporučená změna:</strong> Změnit z <code>${data.current_instance}</code> na <code style="color: green; font-size: 1.1em;">${data.recommended_instance}</code></p>
                     <ul>
-                        <li>Odhadovaná měsíční úspora: <strong>$${fin.estimated_monthly_savings_usd}</strong> (${fin.savings_percentage}% dolů)</li>
-                        <li>Současná denní cena: $${fin.current_actual_daily_cost_usd} -> Nová denní cena: $${fin.projected_daily_cost_usd}</li>
+                        <li>Odhadovaná měsíční úspora: <strong>€${fin.estimated_monthly_savings_eur}</strong> (${fin.savings_percentage}% dolů)</li>
+                        <li>Současná denní cena: €${fin.current_actual_daily_cost_eur} -> Nová denní cena: €${fin.projected_daily_cost_eur}</li>
                     </ul>
                     <p style="font-size: 0.9em; color: #666;">
                         (Vypočteno na základě ${analysisDays} dní. Max CPU P95: ${data.telemetry_used.cpu_p95}%)

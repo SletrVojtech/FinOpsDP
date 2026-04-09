@@ -1,5 +1,6 @@
 from typing import List, Dict, Any
 from crud import downsizing as crud_downsizing
+from services import currency
 
 
 def evaluate_downsizing(
@@ -25,6 +26,8 @@ def evaluate_downsizing(
 
     if excluded_filters is None:
         excluded_filters = []
+
+    exch_rate = currency.get_usd_to_eur_rate()
 
 
     # Get actual instance metadata
@@ -90,6 +93,7 @@ def evaluate_downsizing(
         has_local_storage=current["has_local_storage"],
         # Soft ordering hint
         current_supports_premium=current["supports_premium_storage"],
+        exchange_rate=exch_rate,
     )
 
     if not candidates:
@@ -103,11 +107,11 @@ def evaluate_downsizing(
 
     # Get current costs
     actual_daily_cost = crud_downsizing.get_actual_daily_cost(
-        db_cursor, resource_id, analysis_days
+        db_cursor, resource_id, analysis_days, exchange_rate=exch_rate
     )
     current_catalog_price = crud_downsizing.get_catalog_hourly_price(
         db_cursor, current["provider"], current["region"],
-        current["os"], current["instance_type"],
+        current["os"], current["instance_type"], exchange_rate=exch_rate
     )
 
     # No catalog price — return best candidate without financials
@@ -127,7 +131,7 @@ def evaluate_downsizing(
     best_savings_ratio = 0.0
 
     for cand in candidates:
-        if cand["hourly_price_usd"] < current_catalog_price:
+        if cand["hourly_price_usd"] < current_catalog_price: # Now converted to EUR
             best_candidate = cand
             best_savings_ratio = (
                 (current_catalog_price - cand["hourly_price_usd"]) / current_catalog_price
@@ -153,9 +157,9 @@ def evaluate_downsizing(
         "recommended_instance": best_candidate["instance_type"],
         "constraints_applied": constraints,
         "financials": {
-            "current_actual_daily_cost_usd": round(actual_daily_cost, 2),
-            "projected_daily_cost_usd": round(projected_daily_cost, 2),
-            "estimated_monthly_savings_usd": round(monthly_savings_usd, 2),
+            "current_actual_daily_cost_eur": round(actual_daily_cost, 2),
+            "projected_daily_cost_eur": round(projected_daily_cost, 2),
+            "estimated_monthly_savings_eur": round(monthly_savings_usd, 2), # monthly_savings_usd is now in EUR
             "savings_percentage": round(best_savings_ratio * 100, 2),
         },
         "telemetry_used": {

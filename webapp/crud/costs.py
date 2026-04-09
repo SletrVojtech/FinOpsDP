@@ -28,7 +28,7 @@ def _build_scope_cte(scope_id: int, tags_filter: dict):
 
 
 def get_daily_costs(cursor, scope_id: int = 0, tags_filter: dict = None, target_date: date = None,
-                    start_date: date = None, end_date: date = None):
+                    start_date: date = None, end_date: date = None, exchange_rate: float = 1.0):
     """
         Returns daily and accumulative data for given scope and tags for a time window.
         Based on https://focus.finops.org/use-cases/#forecast-amortized-costs-month-over-month-based-on-historical-trends-2
@@ -57,7 +57,7 @@ def get_daily_costs(cursor, scope_id: int = 0, tags_filter: dict = None, target_
                 %s::timestamptz, 
                 %s::timestamptz
             ) AS bucket,
-            COALESCE(SUM(c.BilledCost), 0.0) AS daily_cost
+            COALESCE(SUM(c.BilledCost * (CASE WHEN c.BillingCurrency = 'USD' THEN %s ELSE 1.0 END)), 0.0) AS daily_cost
         FROM Costs c
         JOIN FilteredEntities fe ON c.EntityId = fe.Id
         WHERE 
@@ -70,13 +70,13 @@ def get_daily_costs(cursor, scope_id: int = 0, tags_filter: dict = None, target_
         FROM Gapfilled
         ORDER BY cost_date ASC;
     """
-    params.extend([start_date, end_date, start_date, end_date])
+    params.extend([start_date, end_date, exchange_rate, start_date, end_date])
     cursor.execute(query, params)
     return [{"date": r[0].isoformat(), "cost": float(r[1])} for r in cursor.fetchall()]
 
 
 def get_daily_costs_by_category(cursor, scope_id: int = 0, tags_filter: dict = None,
-                                start_date: date = None, end_date: date = None):
+                                start_date: date = None, end_date: date = None, exchange_rate: float = 1.0):
     """Daily costs grouped by ServiceCategory. No gap-filling."""
     if not start_date or not end_date:
         start_date = date.today().replace(day=1)
@@ -87,14 +87,14 @@ def get_daily_costs_by_category(cursor, scope_id: int = 0, tags_filter: dict = N
     query = cte_sql + """
         SELECT c.ChargePeriodStart::date,
                COALESCE(c.ServiceCategory, 'Other'),
-               SUM(c.BilledCost)
+               SUM(c.BilledCost * (CASE WHEN c.BillingCurrency = 'USD' THEN %s ELSE 1.0 END))
         FROM Costs c
         JOIN FilteredEntities fe ON c.EntityId = fe.Id
         WHERE c.ChargePeriodStart >= %s::timestamptz
           AND c.ChargePeriodStart < %s::timestamptz
         GROUP BY 1, 2 ORDER BY 1, 2;
     """
-    params.extend([start_date, end_date])
+    params.extend([exchange_rate, start_date, end_date])
     cursor.execute(query, params)
     return [{"date": r[0].isoformat(), "category": r[1], "cost": float(r[2])}
             for r in cursor.fetchall()]
@@ -102,7 +102,7 @@ def get_daily_costs_by_category(cursor, scope_id: int = 0, tags_filter: dict = N
 
 def get_daily_costs_by_tag_key(cursor, scope_id: int = 0, tags_filter: dict = None,
                                tag_key: str = None,
-                               start_date: date = None, end_date: date = None):
+                               start_date: date = None, end_date: date = None, exchange_rate: float = 1.0):
     """Daily costs grouped by values of a given tag key.
     Resources without the tag are grouped as 'Unrecognized'.
     """
@@ -118,7 +118,7 @@ def get_daily_costs_by_tag_key(cursor, scope_id: int = 0, tags_filter: dict = No
     query = cte_sql + """
         SELECT c.ChargePeriodStart::date,
                COALESCE(e.Tags->>%s, 'Unrecognized'),
-               SUM(c.BilledCost)
+               SUM(c.BilledCost * (CASE WHEN c.BillingCurrency = 'USD' THEN %s ELSE 1.0 END))
         FROM Costs c
         JOIN Entities e ON c.EntityId = e.Id
         JOIN FilteredEntities fe ON e.Id = fe.Id
@@ -126,7 +126,7 @@ def get_daily_costs_by_tag_key(cursor, scope_id: int = 0, tags_filter: dict = No
           AND c.ChargePeriodStart < %s::timestamptz
         GROUP BY 1, 2 ORDER BY 1, 2;
     """
-    params.extend([tag_key, start_date, end_date])
+    params.extend([tag_key, exchange_rate, start_date, end_date])
     cursor.execute(query, params)
     return [{"date": r[0].isoformat(), "tag_value": r[1], "cost": float(r[2])}
             for r in cursor.fetchall()]

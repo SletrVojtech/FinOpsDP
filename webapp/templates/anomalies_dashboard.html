@@ -61,11 +61,11 @@
         let limitCell = "";
         
         if (a.type === 'budget') {
-            valCell = `<span class="badge badge-warning">Predikce: ${fmt(a.predicted)}</span>`;
-            limitCell = fmt(a.threshold);
+            valCell = `<span class="badge badge-warning">Predikce: ${fmt(a.predicted)} €</span>`;
+            limitCell = fmt(a.threshold) + ' €';
         } else {
-            valCell = `<span class="badge badge-danger">Cena: ${fmt(a.actual)}</span>`;
-            limitCell = fmt(a.threshold);
+            valCell = `<span class="badge badge-danger">Cena: ${fmt(a.actual)} €</span>`;
+            limitCell = fmt(a.threshold) + ' €';
         }
 
         let actionCell = "";
@@ -102,7 +102,7 @@
                 <td>${typeBadge}</td>
                 <td style="text-align: right;">${valCell}</td>
                 <td style="text-align: right;">${limitCell}</td>
-                <td style="text-align: right; color: var(--color-danger); font-weight: bold;">+${fmt(a.delta)}</td>
+                <td style="text-align: right; color: var(--color-danger); font-weight: bold;">+${fmt(a.delta)} €</td>
                 <td style="text-align: center;">${actionCell}</td>
             </tr>
         `;

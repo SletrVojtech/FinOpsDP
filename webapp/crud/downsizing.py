@@ -89,21 +89,21 @@ def get_telemetry(db_cursor, resource_id: int, analysis_days: int) -> Dict[str, 
         "net_in_max": row[4], "net_out_max": row[5]
     }
 
-def get_actual_daily_cost(db_cursor, resource_id: str, analysis_days: int) -> float:
+def get_actual_daily_cost(db_cursor, resource_id: str, analysis_days: int, exchange_rate: float = 1.0) -> float:
     """Get the current instance spend."""
     query = """
-        SELECT COALESCE(AVG(billedcost), 0.0)
+        SELECT COALESCE(AVG(billedcost * (CASE WHEN billingcurrency = 'USD' THEN %(exchange_rate)s ELSE 1.0 END)), 0.0)
         FROM costs
         WHERE entityid = %(resource_id)s
           AND "chargeperiodstart" >= NOW() - (%(analysis_days)s * INTERVAL '1 day');
     """
-    db_cursor.execute(query, {"resource_id": resource_id, "analysis_days": analysis_days})
+    db_cursor.execute(query, {"resource_id": resource_id, "analysis_days": analysis_days, "exchange_rate": exchange_rate})
     return db_cursor.fetchone()[0]
 
-def get_catalog_hourly_price(db_cursor, provider: str, region: str, os: str, instance_type: str) -> Optional[float]:
-    """Get listed price for given instance."""
+def get_catalog_hourly_price(db_cursor, provider: str, region: str, os: str, instance_type: str, exchange_rate: float = 1.0) -> Optional[float]:
+    """Get listed price for given instance, converted to EUR."""
     query = """
-        SELECT hourly_price_usd FROM pricingcatalog
+        SELECT hourly_price_usd * %(exchange_rate)s FROM pricingcatalog
         WHERE cloud = %(provider)s AND region = %(region)s
           AND os = %(os)s AND instance_type = %(instance_type)s
         LIMIT 1;
@@ -111,6 +111,7 @@ def get_catalog_hourly_price(db_cursor, provider: str, region: str, os: str, ins
     db_cursor.execute(query, {
         "provider": provider, "region": region,
         "os": os, "instance_type": instance_type,
+        "exchange_rate": exchange_rate,
     })
     row = db_cursor.fetchone()
     return row[0] if row else None
@@ -121,6 +122,7 @@ def get_suitable_candidates(db_cursor, provider: str, region: str, os: str,
                             sql_like_patterns: List[str], architecture: str = 'x86_64',
                             is_gpu: bool = False, is_confidential: bool = False,
                             has_local_storage: bool = False, current_supports_premium: bool = False,
+                            exchange_rate: float = 1.0
 ) -> List[Dict[str, Any]]:
     """
     Query for viable downsizing candidates.
@@ -150,7 +152,7 @@ def get_suitable_candidates(db_cursor, provider: str, region: str, os: str,
             h.instance_type,
             h.vcpu,
             h.memory_gb,
-            p.hourly_price_usd,
+            p.hourly_price_usd * %(exchange_rate)s,
             h.architecture,
             h.is_gpu,
             h.is_confidential,
@@ -189,6 +191,7 @@ def get_suitable_candidates(db_cursor, provider: str, region: str, os: str,
         "is_confidential": is_confidential,
         "has_local_storage": has_local_storage,
         "patterns": sql_like_patterns,
+        "exchange_rate": exchange_rate,
     })
 
     return [
