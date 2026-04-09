@@ -110,7 +110,6 @@ services:
         condition: service_healthy
     volumes:
       - ${KUBECONFIG_PATH}:/root/.kube/config:ro
-      - /var/run/docker.sock:/var/run/docker.sock
     command: ["python3", "run_krr.py"]
 
   webapp:

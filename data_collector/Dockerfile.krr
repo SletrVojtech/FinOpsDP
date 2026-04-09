@@ -1,14 +1,15 @@
-FROM python:3.12.3-slim
+FROM us-central1-docker.pkg.dev/genuine-flight-317411/devel/krr:v1.8.3
 
-WORKDIR /app
+USER root
+WORKDIR /finops
 
-RUN apt-get update && apt-get install -y docker.io && rm -rf /var/lib/apt/lists/*
+RUN python3 -m venv /finops/finops_venv
 
-RUN pip install --upgrade pip
+COPY requirementskrr.txt .
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN /finops/finops_venv/bin/pip install --upgrade pip
+RUN /finops/finops_venv/bin/pip install --no-cache-dir -r requirementskrr.txt
 
 COPY . .
 
-CMD ["python3", "data_collector/run_krr.py"]
+ENTRYPOINT ["/finops/finops_venv/bin/python", "run_krr.py"]

@@ -12,9 +12,7 @@ from typing import List
 
 load_dotenv()
 
-_AZURE_SUB_ID = os.getenv("AZURE_SUBSCRIPTION_ID")
-if not _AZURE_SUB_ID:
-    sys.exit("[catalog_collector] Missing required env-var: AZURE_SUBSCRIPTION_ID")
+
 
 def deduplicate_pricing_records(pricing_records: List[PricingRecord]) -> List[PricingRecord]:
     """
@@ -40,6 +38,10 @@ from registry import register_collector
 
 @register_collector("catalogs", help_text="Download catalogs")
 def run_catalog_collector():
+
+    _AZURE_SUB_ID = os.getenv("AZURE_SUBSCRIPTION_ID")
+    if not _AZURE_SUB_ID:
+        sys.exit("[catalog_collector] Missing required env-var: AZURE_SUBSCRIPTION_ID")
     
     aws_hw = AWSHardwareDownloader()
     aws_price = AWSPricingDownloader()

@@ -23,15 +23,8 @@ def run_krr_for_context(context_name: str):
     """Runs a KRR docker image to get a json with recommendations."""
     kubeconfig = get_kubeconfig_path()
     if not kubeconfig: return None
-
+    cmd = ["python", "/app/krr.py", "simple", "--context", context_name, "-f", "json", "-q"]
     log.info(f"Running KRR for context: {context_name}")
-    cmd = [
-        "docker", "run", "--rm",
-        "-v", f"{kubeconfig}:/root/.kube/config:ro",
-        "us-central1-docker.pkg.dev/genuine-flight-317411/devel/krr:v1.8.3",
-        "python","krr.py", "simple", "--context", context_name, "-f", "json", "-q"
-    ]
-
     
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
