@@ -107,3 +107,26 @@ def test_api_get_downsizing_recommendation(client, mock_cursor, override_db, moc
     assert response.json()["status"] == "success"
     mock_eval.assert_called_once()
 
+
+def test_api_get_anomalies(client, mock_cursor, override_db, mocker):
+    """Test GET /api/v1/anomalies endpoint."""
+    mock_data = [{"id": 1, "type": "cost", "date": "2024-04-01"}]
+    mock_get = mocker.patch("crud.costs.get_dashboard_anomalies", return_value=mock_data)
+    
+    response = client.get("/api/v1/anomalies?only_unseen=true")
+    
+    assert response.status_code == 200
+    assert response.json()["data"] == mock_data
+    mock_get.assert_called_once()
+
+def test_api_mark_anomaly_seen(client, mock_cursor, override_db, mocker):
+    """Test POST /api/v1/anomalies/{id}/seen endpoint."""
+    mock_mark = mocker.patch("crud.costs.mark_anomaly_seen")
+    
+    response = client.post("/api/v1/anomalies/123/seen")
+    
+    assert response.status_code == 200
+    mock_mark.assert_called_once_with(mock_cursor, 123)
+    mock_cursor.connection.commit.assert_called_once()
+
+

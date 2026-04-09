@@ -10,7 +10,9 @@ from datetime import date
 @patch("jobs.fbad_worker.anomaly_job.costs_crud.save_forecast_snapshot")
 @patch("jobs.fbad_worker.anomaly_job.costs_crud.save_anomalies")
 @patch("jobs.fbad_worker.anomaly_job.costs_crud.get_max_date")
+@patch("jobs.fbad_worker.anomaly_job.costs_crud.get_budget")
 def test_run_anomaly_job(
+    mock_get_budget,
     mock_get_max_date,
     mock_save_anomalies, 
     mock_save_forecast, 
@@ -40,6 +42,10 @@ def test_run_anomaly_job(
     # Setup Costs
     mock_get_costs.return_value = {"2026-03-01": 10.0}
     
+    # Setup Budget
+    mock_get_budget.return_value = 50.0  # Threshold
+    
+    
     # Act
     run_anomaly_job()
     
@@ -49,6 +55,13 @@ def test_run_anomaly_job(
     # Check that results were saved
     assert mock_save_forecast.called
     assert mock_save_anomalies.called
+    
+    # Verify budget anomaly was generated and passed to save_anomalies
+    saved_anomalies = mock_save_anomalies.call_args[0][3]
+    budget_anomalies = [a for a in saved_anomalies if a.get("type") == "budget"]
+    assert len(budget_anomalies) == 1
+    assert budget_anomalies[0]["date"] == "2026-03-31"
+    
     # Check that commit was called
     assert mock_cursor.connection.commit.called
 

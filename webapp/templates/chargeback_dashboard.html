@@ -245,11 +245,16 @@
 
     document.getElementById('monthSelect').addEventListener('change', renderChargebackChart);
     
-    // Set the initial month to the current month
+    // Set the initial month to the current month or the requested one
     var initialMonthInput = document.getElementById('monthSelect');
     if (!initialMonthInput.value) {
-        var now = new Date();
-        initialMonthInput.value = now.toISOString().substring(0, 7);
+        var preselectedMonth = "{{ target_month }}";
+        if (preselectedMonth && preselectedMonth.trim() !== "") {
+            initialMonthInput.value = preselectedMonth;
+        } else {
+            var now = new Date();
+            initialMonthInput.value = now.toISOString().substring(0, 7);
+        }
     }
 
     // Initial UI state for buttons

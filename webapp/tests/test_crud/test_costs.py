@@ -2,7 +2,7 @@ import json
 import pytest
 from datetime import date
 from unittest.mock import MagicMock
-from crud.costs import _build_scope_cte, set_budget, save_forecast_snapshot, save_anomalies, get_daily_costs_by_tag_key
+from crud.costs import _build_scope_cte, set_budget, save_forecast_snapshot, save_anomalies, get_daily_costs_by_tag_key, get_dashboard_anomalies, mark_anomaly_seen
 
 def test_build_scope_cte_no_tags():
     """Test CTE generation with only scope_id."""
@@ -74,11 +74,11 @@ def test_save_forecast_snapshot():
     assert args[1][2] == target_month
 
 def test_save_anomalies():
-    """Verify anomaly insertion for each entry in a list."""
+    """Verify anomaly insertion for each entry in a list, including type."""
     cursor = MagicMock()
     anomalies = [
-        {"date": date(2024, 1, 1), "actual": 100, "predicted": 80, "threshold": 110, "delta": 20},
-        {"date": date(2024, 1, 2), "actual": 120, "predicted": 85, "threshold": 115, "delta": 35}
+        {"date": date(2024, 1, 1), "actual": 100, "predicted": 80, "threshold": 110, "delta": 20, "type": "cost"},
+        {"date": date(2024, 1, 2), "actual": 120, "predicted": 85, "threshold": 115, "delta": 35, "type": "budget"}
     ]
     
     save_anomalies(cursor, 1, {"env": "prod"}, anomalies)
@@ -86,7 +86,38 @@ def test_save_anomalies():
     assert cursor.execute.call_count == 2
     first_call_params = cursor.execute.call_args_list[0][0][1]
     assert first_call_params[2] == date(2024, 1, 1)
-    assert first_call_params[3] == 100 # actual cost
+    assert first_call_params[3] == "cost" # anomaly type
+    assert first_call_params[4] == 100 # actual cost
+
+    second_call_params = cursor.execute.call_args_list[1][0][1]
+    assert second_call_params[3] == "budget"
+
+def test_get_dashboard_anomalies():
+    """Verify fetching dashboard anomalies with filters."""
+    cursor = MagicMock()
+    cursor.fetchall.return_value = [
+        (1, 10, "Resource1", {"env": "prod"}, date(2024,1,1), "cost", 100.0, 80.0, 110.0, 20.0, False, None)
+    ]
+    
+    res = get_dashboard_anomalies(cursor, date(2024,1,1), date(2024,1,31), only_unseen=True)
+    
+    assert len(res) == 1
+    assert res[0]["id"] == 1
+    assert res[0]["type"] == "cost"
+    assert res[0]["is_seen"] is False
+    
+    # Verify SQL filter
+    args = cursor.execute.call_args[0]
+    assert "c.IsSeen = FALSE" in args[0]
+
+def test_mark_anomaly_seen():
+    """Verify marking anomaly as seen by ID."""
+    cursor = MagicMock()
+    mark_anomaly_seen(cursor, 123)
+    
+    args = cursor.execute.call_args[0]
+    assert "UPDATE CostAnomalies SET IsSeen = TRUE" in args[0]
+    assert args[1][0] == 123
 
 def test_get_daily_costs_by_tag_key():
     """Verify SQL construction for tag-based cost grouping."""

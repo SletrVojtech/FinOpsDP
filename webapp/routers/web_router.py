@@ -99,6 +99,7 @@ def view_metrics_dashboard(request: Request, entity_id: int, current_qs: str = "
 def view_chargeback_dashboard(
     request: Request, 
     scope_id: str = "", 
+    target_month: str = "",
     current_qs: str = "",
     cursor = Depends(get_db_cursor)
 ):
@@ -112,7 +113,8 @@ def view_chargeback_dashboard(
     return templates.TemplateResponse(request, "chargeback_dashboard.html", {
         "scope_id": scope_id,
         "current_qs": current_qs,
-        "top_tags": top_tags
+        "top_tags": top_tags,
+        "target_month": target_month
     })
 
 @router.get("/ui/allocations", response_class=HTMLResponse)
@@ -219,3 +221,8 @@ def cluster_cost_detail(request: Request, cluster_id: int,
         "chart_data": chart_data,
         "month": target_month_str
     })
+
+@router.get("/ui/anomalies", response_class=HTMLResponse)
+def view_anomalies_dashboard(request: Request):
+    """Shows a page with the anomalies dashboard."""
+    return templates.TemplateResponse(request, "anomalies_dashboard.html", {})

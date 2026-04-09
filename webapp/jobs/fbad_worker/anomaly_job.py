@@ -104,6 +104,25 @@ def run_anomaly_job():
             projected_total = actual_cumulative_sum + future_forecast_sum
             
             anomalies = results["anomalies"]
+            for a in anomalies:
+                a["type"] = "cost"
+            
+            budget = costs_crud.get_budget(cursor, scope_id, tags, base_date)
+            if budget and projected_total > budget:
+                running_sum = actual_cumulative_sum
+                for d_str, future_val in sorted(results["future_forecasts"].items()):
+                    running_sum += future_val
+                    if running_sum > budget:
+                        # Append the day it breaks the budget amount
+                        anomalies.append({
+                            "date": d_str,
+                            "type": "budget",
+                            "actual": actual_cumulative_sum,
+                            "predicted": round(running_sum, 2),
+                            "threshold": budget,
+                            "delta": round(running_sum - budget, 2)
+                        })
+                        break
             
             # Save calculations back to database
             if projected_total > 0:

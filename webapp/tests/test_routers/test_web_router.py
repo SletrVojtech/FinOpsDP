@@ -99,3 +99,20 @@ def test_list_clusters(client, mock_cursor, override_db):
     assert response.status_code == 200
     assert "Cluster1" in response.text
 
+
+def test_view_anomalies_dashboard(client, mock_cursor, override_db, mocker):
+    """Test the anomalies dashboard page."""
+    response = client.get("/ui/anomalies")
+    assert response.status_code == 200
+    assert "Anomálie a Překročení rozpočtů" in response.text
+
+def test_view_chargeback_dashboard_with_month(client, mock_cursor, override_db, mocker):
+    """Test chargeback dashboard with target_month parameter."""
+    mocker.patch("crud.entities.get_scoped_top_tags", return_value=[])
+    
+    response = client.get("/ui/chargeback?scope_id=1&target_month=2024-04")
+    
+    assert response.status_code == 200
+    assert "2024-04" in response.text
+
+

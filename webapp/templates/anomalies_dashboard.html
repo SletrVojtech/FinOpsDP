@@ -1,0 +1,169 @@
+<div class="mb-4">
+    <h2>Anomálie a Překročení rozpočtů</h2>
+    <p class="text-muted">Přehled denních anomálií a predikcí překročení rozpočtů.</p>
+</div>
+
+<div class="card mb-6">
+    <div class="card-header">
+        <h4 class="mb-0">Nové (Nepřečtené)</h4>
+    </div>
+    <div class="table-container">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Datum</th>
+                    <th>Scope</th>
+                    <th>Typ</th>
+                    <th style="text-align: right;">Skutečně / Predikce</th>
+                    <th style="text-align: right;">Limit / Hranice</th>
+                    <th style="text-align: right;">Rozdíl</th>
+                    <th style="text-align: center;">Akce</th>
+                </tr>
+            </thead>
+            <tbody id="unseen-anomalies-table">
+                <tr><td colspan="7" class="text-muted text-center py-4">Načítám</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header flex justify-between items-center" style="display: flex; justify-content: space-between; align-items: center;">
+        <h4 class="mb-0">Historie</h4>
+        <input type="month" id="history-month" class="btn btn-outline" style="padding: 4px 8px; cursor: pointer;" onchange="loadAnomalies()">
+    </div>
+    <div class="table-container">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Datum</th>
+                    <th>Scope</th>
+                    <th>Typ</th>
+                    <th style="text-align: right;">Skutečně / Predikce</th>
+                    <th style="text-align: right;">Limit / Hranice</th>
+                    <th style="text-align: right;">Rozdíl</th>
+                    <th style="text-align: center;">Stav</th>
+                </tr>
+            </thead>
+            <tbody id="all-anomalies-table">
+                <tr><td colspan="7" class="text-muted text-center py-4">Načítám</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+    function renderAnomalyRow(a, isUnseenTable) {
+        // Format numbers
+        const fmt = (val) => val != null ? val.toLocaleString('cs-CZ', {maximumFractionDigits: 2}) : '-';
+        
+        let valCell = "";
+        let limitCell = "";
+        
+        if (a.type === 'budget') {
+            valCell = `<span class="badge badge-warning">Predikce: ${fmt(a.predicted)}</span>`;
+            limitCell = fmt(a.threshold);
+        } else {
+            valCell = `<span class="badge badge-danger">Cena: ${fmt(a.actual)}</span>`;
+            limitCell = fmt(a.threshold);
+        }
+
+        let actionCell = "";
+        if (isUnseenTable) {
+            actionCell = `<button onclick="markSeen(${a.id})" class="btn btn-outline" style="color: var(--color-primary); border-color: var(--color-primary); padding: 4px 8px; font-size: 0.85rem;">Označit jako viděné</button>`;
+        } else {
+            actionCell = a.is_seen 
+                ? '<span class="text-muted"><svg width="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg> Přečteno</span>'
+                : '<span class="badge badge-info text-xs">Nové</span>';
+        }
+
+        const typeBadge = a.type === 'budget' 
+            ? '<span class="badge" style="background-color: var(--color-warning); color: #fff;">Rozpočet</span>'
+            : '<span class="badge" style="background-color: var(--color-danger); color: #fff;">Spike</span>';
+
+        let qsParams = new URLSearchParams();
+        qsParams.append('scope_id', a.scope_id);
+        if (a.tags) {
+            for (const [k, v] of Object.entries(a.tags)) {
+                qsParams.append(`tag_${k}`, v);
+            }
+        }
+        if (a.date) {
+            qsParams.append('target_month', a.date.substring(0, 7));
+        }
+        const qs = qsParams.toString();
+        const scopeLink = `<a href="#" onclick="htmx.ajax('GET', '/ui/chargeback?${qs}', '#app-content'); return false;" class="text-primary font-medium" style="text-decoration: underline;">${a.scope_name}</a>` +
+                          (a.tags && Object.keys(a.tags).length > 0 ? `<br><span class="text-xs text-muted">${JSON.stringify(a.tags).replace(/["{}]/g, '').replace(/:/g, ': ')}</span>` : '');
+
+        return `
+            <tr>
+                <td class="font-medium">${a.date}</td>
+                <td>${scopeLink}</td>
+                <td>${typeBadge}</td>
+                <td style="text-align: right;">${valCell}</td>
+                <td style="text-align: right;">${limitCell}</td>
+                <td style="text-align: right; color: var(--color-danger); font-weight: bold;">+${fmt(a.delta)}</td>
+                <td style="text-align: center;">${actionCell}</td>
+            </tr>
+        `;
+    }
+
+    async function loadAnomalies() {
+        try {
+            // Load unseen
+            const resUnseen = await fetch('/api/v1/anomalies?only_unseen=true');
+            const unseenData = await resUnseen.json();
+            
+            // Get selected month for history
+            const monthInput = document.getElementById('history-month');
+            let historyQs = '';
+            if (!monthInput.value) {
+                const now = new Date();
+                monthInput.value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+            }
+            if (monthInput.value) {
+                const [year, month] = monthInput.value.split('-');
+                const start = `${year}-${month}-01`;
+                const end = new Date(year, month, 0).toISOString().split('T')[0];
+                historyQs = `?start_date=${start}&end_date=${end}`;
+            }
+
+            // Load all for the selected month
+            const resAll = await fetch('/api/v1/anomalies' + historyQs);
+            const allData = await resAll.json();
+
+            const tbodyUnseen = document.getElementById('unseen-anomalies-table');
+            if (unseenData.data && unseenData.data.length > 0) {
+                tbodyUnseen.innerHTML = unseenData.data.map(a => renderAnomalyRow(a, true)).join('');
+            } else {
+                tbodyUnseen.innerHTML = '<tr><td colspan="7" class="text-muted text-center py-8">Nemáte žádné nové anomálie.</td></tr>';
+            }
+
+            const tbodyAll = document.getElementById('all-anomalies-table');
+            if (allData.data && allData.data.length > 0) {
+                tbodyAll.innerHTML = allData.data.map(a => renderAnomalyRow(a, false)).join('');
+            } else {
+                tbodyAll.innerHTML = '<tr><td colspan="7" class="text-muted text-center py-8">Tento měsíc nejsou zaznamenány žádné anomálie.</td></tr>';
+            }
+        } catch(e) {
+            console.error("Failed to load anomalies", e);
+        }
+    }
+
+    async function markSeen(id) {
+        try {
+            const res = await fetch(`/api/v1/anomalies/${id}/seen`, {method: 'POST'});
+            if(res.ok) {
+                loadAnomalies();
+            } else {
+                alert("Nepodařilo se označit anomálii jako viděnou.");
+            }
+        } catch(e) {
+            console.error(e);
+            alert("Došlo k neočekávané chybě.");
+        }
+    }
+
+    // Initialize the fetch
+    loadAnomalies();
+</script>

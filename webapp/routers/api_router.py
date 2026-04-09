@@ -136,3 +136,21 @@ def get_downsizing_recommendation(
     )
     
     return result
+
+@router.get("/anomalies")
+def api_get_anomalies(
+    start_date: date = Query(default=date.today().replace(day=1), description="Start date"),
+    end_date: date = Query(default=date.today(), description="End date"),
+    only_unseen: bool = Query(False, description="Filter only unseen anomalies"),
+    cursor = Depends(get_db_cursor)
+):
+    """Returns anomalies for the dashboard."""
+    data = cost.get_dashboard_anomalies(cursor, start_date, end_date, only_unseen)
+    return {"status": "success", "data": data}
+
+@router.post("/anomalies/{anomaly_id}/seen")
+def api_mark_anomaly_seen(anomaly_id: int, cursor = Depends(get_db_cursor)):
+    """Marks an anomaly as seen."""
+    cost.mark_anomaly_seen(cursor, anomaly_id)
+    cursor.connection.commit()
+    return {"status": "success"}

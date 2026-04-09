@@ -101,12 +101,14 @@ SCHEMA_DEFINITIONS = {
         ScopeId INTEGER REFERENCES Entities(Id),
         Tags JSONB,
         AnomalyDate DATE,
+        AnomalyType VARCHAR(50) DEFAULT 'cost',
         ActualCost DECIMAL(18, 4),
         PredictedCost DECIMAL(18, 4),
         UpperThreshold DECIMAL(18, 4),
         Delta DECIMAL(18, 4),
         DetectedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE(ScopeId, Tags, AnomalyDate)
+        IsSeen BOOLEAN DEFAULT FALSE,
+        UNIQUE(ScopeId, Tags, AnomalyDate, AnomalyType)
     );
     """,
     "allocationrules":"""
