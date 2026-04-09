@@ -300,3 +300,14 @@ ul.list-group li.list-item {
     padding: 4px 10px;
     font-size: 0.875rem;
 }
+
+.u-hidden {
+    display: none !important;
+}
+
+[hidden] {
+    display: none !important;
+}
+
+
+

@@ -3,8 +3,8 @@ from fastapi import APIRouter, Request, Depends, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from db.database import get_db_cursor
-from crud import entities, metrics, costs, allocations, krr
-from services.utils import humanize_memory, humanize_cpu
+from crud import entities, metrics, costs, allocations, krr, downsizing_rules
+from services.utils import humanize_memory, humanize_cpu, extract_active_tags
 from services.kube_chargeback import get_daily_namespace_allocation
 from services import cost_service as costs_service
 from datetime import date, timedelta
@@ -52,6 +52,8 @@ def get_scope(request: Request, node_id: int = 0, cursor = Depends(get_db_cursor
         "items": items,
         "active_tags": active_tags,
         "current_qs": current_qs,
+        "patterns": downsizing_rules.get_exact_excluded_patterns(cursor, node_id, active_tags),
+        "scope_id": node_id,
     })
 
 @router.get("/ui/tag_values", response_class=HTMLResponse)
@@ -226,3 +228,28 @@ def cluster_cost_detail(request: Request, cluster_id: int,
 def view_anomalies_dashboard(request: Request):
     """Shows a page with the anomalies dashboard."""
     return templates.TemplateResponse(request, "anomalies_dashboard.html", {})
+
+@router.post("/ui/downsizing-rules", response_class=HTMLResponse)
+async def ui_set_downsizing_rules(
+    request: Request,
+    scope_id: int = 0,
+    cursor = Depends(get_db_cursor)
+):
+    """UI endpoint to update downsizing rules and return the refreshed card."""
+    form_data = await request.form()
+    excluded_patterns_str = form_data.get("excluded_patterns", "")
+    patterns = [p.strip() for p in excluded_patterns_str.split(",") if p.strip()]
+    
+    active_tags = extract_active_tags(request)
+    downsizing_rules.set_excluded_patterns(cursor, scope_id, active_tags, patterns)
+    cursor.connection.commit()
+    
+    # Re-render the card partial
+    current_qs = urllib.parse.urlencode({f"tag_{k}": v for k, v in active_tags.items()})
+    
+    return templates.TemplateResponse(request, "partial/downsizing_rules_card.html", {
+        "scope_id": scope_id,
+        "current_qs": current_qs,
+        "patterns": patterns,
+        "active_tags": active_tags
+    })

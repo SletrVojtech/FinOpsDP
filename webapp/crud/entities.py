@@ -156,7 +156,7 @@ def get_dynamic_items(cursor, scope_id: int = None, tags_filter: dict = None):
         has_metrics_sql = """
             CASE 
                 WHEN u.ParentId = %s THEN 
-                    EXISTS(SELECT 1 FROM Metrics m WHERE m.EntityId = u.Id AND m.Timestamp >= NOW() - INTERVAL '24 HOURS')
+                    EXISTS(SELECT 1 FROM Metrics m WHERE m.EntityId = u.Id AND m.Timestamp >= NOW() - INTERVAL '7 DAYS')
                 ELSE False 
             END
         """

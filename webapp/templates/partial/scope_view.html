@@ -27,6 +27,22 @@
     </a>
 </div>
 {% endif %}
+    
+<div class="mb-4">
+    <button type="button" class="btn btn-outline text-xs" style="padding: 4px 10px;"
+            onclick="const el = document.getElementById('downsizing-rules-wrapper'); el.hidden = !el.hidden">
+        Nastavení downsizingu
+    </button>
+</div>
+
+<div id="downsizing-rules-wrapper" hidden>
+
+    {% include "partial/downsizing_rules_card.html" %}
+</div>
+
+
+
+
 
 <div class="filter-bar">
     <strong class="text-sm">Přidat filtr podle tagu:</strong>

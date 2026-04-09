@@ -160,7 +160,7 @@ async function renderAllCharts() {
         contentDiv.innerHTML = '<p>Počítám doporučení na základě vybraného období</p>';
 
         try {
-            const response = await fetch(`/api/v1/downsizing/${entityId}?analysis_days=${analysisDays}`);
+            const response = await fetch(`/api/v1/downsizing/${entityId}?analysis_days=${analysisDays}&scope_id={{ scope_id }}`);
             const data = await response.json();
 
             if (data.status === "error") {
