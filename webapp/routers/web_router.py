@@ -211,6 +211,9 @@ def cluster_cost_detail(request: Request, cluster_id: int,
         for date_str, daily_cost in zip(forecast_data["labels"], forecast_data["actual_daily"])
         if daily_cost is not None
     }
+
+    daily_cluster_costs = costs_service.get_aggregated_daily_costs_k8s(cursor, cluster_id, {"cluster": cluster_name}, start_date=base_date, end_date=base_date + timedelta(days=30))
+
     chart_data = get_daily_namespace_allocation(cursor, cluster_id, base_date, daily_cluster_costs)
 
     # JSON-only response for AJAX month changes

@@ -39,6 +39,92 @@ def _make_anomaly_entry(date_str: str, daily_cost: float, thresh_data) -> dict:
     return {"date": date_str, "is_anomaly": False,
             "actual": round(daily_cost, 2), "threshold": None, "delta": 0.0}
 
+def get_aggregated_daily_costs_k8s(cursor, scope_id: int, active_tags: dict,
+                                start_date: date = None, end_date: date = None):
+    """Aggregates daily costs for a given k8s."""
+    raw_data = costs_crud.get_daily_costs(cursor, scope_id, active_tags,
+                                           start_date=start_date, end_date=end_date)
+    cost_dict = {row["date"]: row["cost"] for row in raw_data}
+
+    if not active_tags:
+        return cost_dict
+    
+    target_namespaces = costs_crud.get_namespaces_for_tags(cursor, active_tags)
+    print(target_namespaces)
+    if target_namespaces:
+        # Get a set of clusters needed to be queried.
+        cluster_map = {}
+        for ns in target_namespaces:
+            cluster_id = ns[1]
+            ns_name = ns[2]
+            if cluster_id not in cluster_map:
+                cluster_map[cluster_id] = []
+            cluster_map[cluster_id].append(ns_name)
+        print(cluster_map)
+        for cluster_id, ns_names in cluster_map.items():
+            # Daily costs for given cluster
+            cluster_raw_costs = costs_crud.get_daily_costs(cursor, cluster_id, {}, start_date=start_date, end_date=end_date)
+            print(cluster_raw_costs)
+            cluster_cost_dict = {row["date"]: row["cost"] for row in cluster_raw_costs}
+            namespace_costs = kube_chargeback.get_daily_namespace_allocation(
+                cursor, 
+                cluster_id,
+                base_date=None,  
+                daily_cluster_costs =cluster_cost_dict, 
+                return_ui_format=False,
+                start_date=start_date, 
+                end_date=end_date
+
+            )
+            
+            # Add the namespaces to the costs
+            for ns_name in ns_names:
+                if ns_name in namespace_costs:
+                    for date_str, cost in namespace_costs[ns_name].items():
+                        cost_dict[date_str] = cost_dict.get(date_str, 0.0) + cost
+    
+    all_rules = allocations.get_allocation_rules(cursor)
+        
+    # Get rules that affect current tag scope
+    incoming_rules = [r for r in all_rules if tags_match(active_tags, r["target_tags"])]
+    outgoing_rules = [r for r in all_rules if tags_match(active_tags, r["source_tags"])]
+    
+    applicable_rules = incoming_rules + outgoing_rules
+
+    if applicable_rules:
+        # Load all sources
+        source_costs = {}
+        existing_dates = set(cost_dict.keys())
+        for rule in applicable_rules:
+            if rule["id"] not in source_costs:
+                s_data = costs_crud.get_daily_costs(cursor, 0, rule["source_tags"], start_date=start_date, end_date=end_date)
+                s_dict = {row["date"]: row["cost"] for row in s_data}
+                source_costs[rule["id"]] = s_dict
+                existing_dates.update(s_dict.keys())
+
+        # Update daily values
+        for day in existing_dates:
+            date_str = day
+            
+            # Base expense
+            daily_total = cost_dict.get(date_str, 0.0)
+            
+            # Add costs for being the target
+            for rule in incoming_rules:
+                s_cost = source_costs[rule["id"]].get(date_str, 0.0)
+                daily_total += s_cost * (rule["percentage"] / 100.0)
+                
+            # Deduct costs for being the source
+            for rule in outgoing_rules:
+                s_cost = source_costs[rule["id"]].get(date_str, 0.0)
+                daily_total -= s_cost * (rule["percentage"] / 100.0)
+                
+            cost_dict[date_str] = daily_total
+
+    return cost_dict
+
+
+
 def get_aggregated_daily_costs(cursor, scope_id: int, active_tags: dict,
                                 start_date: date = None, end_date: date = None):
     """Aggregates daily costs for a given scope and tags."""
@@ -50,6 +136,7 @@ def get_aggregated_daily_costs(cursor, scope_id: int, active_tags: dict,
         return cost_dict
     
     target_namespaces = costs_crud.get_namespaces_for_tags(cursor, active_tags)
+    print(target_namespaces)
     if target_namespaces:
         # Get a set of clusters needed to be queried.
         cluster_map = {}
@@ -59,12 +146,14 @@ def get_aggregated_daily_costs(cursor, scope_id: int, active_tags: dict,
             if cluster_id not in cluster_map:
                 cluster_map[cluster_id] = []
             cluster_map[cluster_id].append(ns_name)
-        
+        print(cluster_map)
         for cluster_id, ns_names in cluster_map.items():
             # Daily costs for given cluster
-            cluster_raw_costs = costs_crud.get_daily_costs(cursor, cluster_id, {}, start_date=start_date, end_date=end_date)
-            cluster_cost_dict = {row["date"]: row["cost"] for row in cluster_raw_costs}
-            
+            cursor.execute("SELECT ResourceName FROM Entities WHERE Id = %s", (cluster_id,))
+            row = cursor.fetchone()
+            cluster_name = row[0] if row else "Neznámý cluster"
+            # Daily costs for given cluster
+            cluster_cost_dict = get_aggregated_daily_costs_k8s(cursor, cluster_id, {"cluster": cluster_name}, start_date=start_date, end_date=end_date)
             namespace_costs = kube_chargeback.get_daily_namespace_allocation(
                 cursor, 
                 cluster_id,
@@ -186,16 +275,17 @@ def _get_shared_namespace_allocations(cursor, active_tags: dict, start_date: dat
 
     results = {}
     for cluster_id, ns_list in cluster_map.items():
+        # Get cluster name
+        cursor.execute("SELECT ResourceName FROM Entities WHERE Id = %s", (cluster_id,))
+        row = cursor.fetchone()
+        cluster_name = row[0] if row else "Neznámý cluster"
         # Daily costs for given cluster
-        cluster_cost_dict = {r["date"]: r["cost"] for r in
-                             costs_crud.get_daily_costs(cursor, cluster_id, {},
-                                                        start_date=start_date, end_date=end_date)}
+        cluster_cost_dict = get_aggregated_daily_costs_k8s(cursor, cluster_id, {"cluster": cluster_name}, start_date=start_date, end_date=end_date)
         # Batch attribution for all namespaces in this cluster
         all_ns_allocations = kube_chargeback.get_daily_namespace_allocation(
             cursor, cluster_id, base_date=None,
             daily_cluster_costs=cluster_cost_dict, return_ui_format=False,
             start_date=start_date, end_date=end_date)
-            
         for ns_id, ns_name, ns_tags in ns_list:
             if ns_name in all_ns_allocations:
                 results[ns_id] = {
@@ -372,7 +462,6 @@ def calculate_chargeback_forecast(cursor, scope_id: int, active_tags: dict,
     # Get history
     history_start = start_date - timedelta(days=35)
     cost_dict = get_aggregated_daily_costs(cursor, scope_id, active_tags, start_date=history_start, end_date=end_date)
-    
     if group_by_tag:
         breakdown_dict = get_aggregated_daily_costs_by_tag_key(cursor, scope_id, active_tags, group_by_tag, start_date=start_date, end_date=end_date)
     else:
@@ -391,8 +480,6 @@ def calculate_chargeback_forecast(cursor, scope_id: int, active_tags: dict,
                 break
                 
     curr_date = max(history_start, first_nonzero_date)
-
-    print(f"Cutoff date object: {cutoff_date_obj}")
         
     while curr_date <= cutoff_date_obj:
         d_str = curr_date.isoformat()
