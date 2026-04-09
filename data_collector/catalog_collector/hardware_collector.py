@@ -53,8 +53,18 @@ class AzureHardwareDownloader(CloudHardwareDownloader):
                 caps = {cap['name']: cap['value'] for cap in item.get('capabilities', [])}
 
                 # Architecture
-                arch_raw = caps.get('Architecture', 'x64').lower()
-                architecture = 'arm64' if 'arm' in arch_raw else 'x86_64'
+                architecture = 'x86_64'  # Default
+
+                # Regex finds block of letters between number of cores and underscore or end of string.
+                # "standard_d2ps_v5" -> finds "2ps_", extracts "ps"
+                match = re.search(r'\d+([a-z]+)(_|$)', name.lower())
+
+                if match:
+                    features = match.group(1)
+                    
+                    # p indicates ARM
+                    if 'p' in features:
+                        architecture = 'arm64'
 
                 # GPU
                 gpu_count = int(caps.get('GPUs', 0))
