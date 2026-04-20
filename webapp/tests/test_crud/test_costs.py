@@ -133,3 +133,32 @@ def test_get_daily_costs_by_tag_key():
     args = cursor.execute.call_args[0]
     assert "env" in args[1]
     assert "Tags->>%s" in args[0]
+
+
+from crud.costs import get_forecast_quality
+
+def test_get_forecast_quality():
+    """Verify get_forecast_quality logic and calculations."""
+    cursor = MagicMock()
+    from datetime import datetime
+    # Columns: ScopeId, ResourceName, Tags, ForecastDate, ProjectedAmount, DailyForecasts, CalculatedAt
+    cursor.fetchall.return_value = [
+        (1, "Scope A", {"env": "prod"}, date(2024, 1, 1), 80.0, {"2024-01-01": 40.0, "2024-01-02": 40.0}, datetime(2024, 1, 1, 10, 0)),
+        (1, "Scope A", {"env": "prod"}, date(2024, 1, 2), 120.0, {"2024-01-01": 60.0, "2024-01-02": 60.0}, datetime(2024, 1, 2, 10, 0))
+    ]
+    
+    target_month = date(2024, 1, 1)
+    results = get_forecast_quality(cursor, target_month)
+    
+    assert len(results) == 1
+    assert results[0]["scope_id"] == 1
+    # Average of 80 and 120
+    assert results[0]["projected_amount"] == 100.0
+    # Latest is 120
+    assert results[0]["actual_amount"] == 120.0
+    assert results[0]["variance"] == 20.0
+    assert results[0]["accuracy"] == 80.0
+    
+    # Ensure nested dict conversion worked
+    assert results[0]["daily_actuals"]["2024-01-01"] == 60.0
+    assert results[0]["daily_forecasts"]["2024-01-01"] == 50.0

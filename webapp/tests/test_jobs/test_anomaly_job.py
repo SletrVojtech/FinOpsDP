@@ -59,7 +59,8 @@ def test_run_anomaly_job(
     # Verify budget anomaly was generated and passed to save_anomalies
     saved_anomalies = mock_save_anomalies.call_args[0][3]
     budget_anomalies = [a for a in saved_anomalies if a.get("type") == "budget"]
-    assert len(budget_anomalies) == 1
+    # 2 anomalies, one as end of month and one for when the overrun happened.
+    assert len(budget_anomalies) == 2
     assert budget_anomalies[0]["date"] == "2026-03-31"
     
     # Check that commit was called

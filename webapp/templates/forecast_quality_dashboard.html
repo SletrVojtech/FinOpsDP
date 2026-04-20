@@ -1,0 +1,201 @@
+<div class="mb-4">
+    <h2>Vyhodnocení kvality predikcí</h2>
+    <p class="text-muted">Porovnání posledních predikcí před začátkem měsíce se skutečnými náklady po jeho skončení
+        (nebo do dnešního dne).</p>
+</div>
+
+<div class="card mb-6">
+    <div class="card-header flex justify-between items-center"
+        style="display: flex; justify-content: space-between; align-items: center;">
+        <h4 class="mb-0">Přehled přesnosti</h4>
+        <input type="month" id="quality-month" class="btn btn-outline" style="padding: 4px 8px; cursor: pointer;"
+            onchange="loadForecastQuality()">
+    </div>
+    <div class="table-container">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Scope</th>
+                    <th>Datum Predikce</th>
+                    <th style="text-align: right;">Predikce</th>
+                    <th style="text-align: right;">Skutečně</th>
+                    <th style="text-align: right;">Odchylka</th>
+                    <th style="text-align: right;">Přesnost</th>
+                    <th style="text-align: center;">Akce</th>
+                </tr>
+            </thead>
+            <tbody id="quality-table-body">
+                <tr>
+                    <td colspan="7" class="text-muted text-center py-4">Načítám</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div id="quality-chart-container" class="card mt-4 u-hidden">
+    <div class="card-header flex justify-between items-center">
+        <h4 class="mb-0" id="chart-title">Denní vektory predikce vs skutečnost</h4>
+        <button class="btn btn-ghost"
+            onclick="document.getElementById('quality-chart-container').classList.add('u-hidden')">Zavřít</button>
+    </div>
+    <div class="card-body">
+        <canvas id="daily-vectors-chart" style="width: 100%; height: 300px;"></canvas>
+    </div>
+</div>
+
+<script>
+    let globalQualityData = [];
+    let vectorsChart = null;
+
+    function renderQualityRow(row, index) {
+        const fmt = (val) => val != null ? val.toLocaleString('cs-CZ', { maximumFractionDigits: 2 }) : '-';
+
+        let accuracyBadge = '';
+        if (row.accuracy >= 90) {
+            accuracyBadge = `<span class="badge badge-success">${fmt(row.accuracy)} %</span>`;
+        } else if (row.accuracy >= 75) {
+            accuracyBadge = `<span class="badge badge-warning">${fmt(row.accuracy)} %</span>`;
+        } else {
+            accuracyBadge = `<span class="badge badge-danger">${fmt(row.accuracy)} %</span>`;
+        }
+
+        let varBadge = '';
+        if (row.variance > 0) {
+            varBadge = `<span class="font-medium" style="color: var(--color-danger);">+${fmt(row.variance)} €</span>`;
+        } else if (row.variance < 0) {
+            varBadge = `<span class="font-medium" style="color: var(--color-success);">${fmt(row.variance)} €</span>`;
+        } else {
+            varBadge = `<span class="text-muted">0 €</span>`;
+        }
+
+        let tagsStr = row.tags && Object.keys(row.tags).length > 0 ? JSON.stringify(row.tags).replace(/["{}]/g, '').replace(/:/g, ': ') : '';
+        let scopeStr = row.scope_name;
+        if (tagsStr) scopeStr += `<br><span class="text-xs text-muted">${tagsStr}</span>`;
+
+        return `
+            <tr>
+                <td>${scopeStr}</td>
+                <td>${row.forecast_date || '-'}</td>
+                <td style="text-align: right; font-weight: 500;">${fmt(row.projected_amount)} €</td>
+                <td style="text-align: right; font-weight: 500;">${fmt(row.actual_amount)} €</td>
+                <td style="text-align: right;">${varBadge}</td>
+                <td style="text-align: right;">${accuracyBadge}</td>
+                <td style="text-align: center;">
+                    <button class="btn btn-outline text-xs" onclick="showChart(${index})">Graf denních vektorů</button>
+                </td>
+            </tr>
+        `;
+    }
+
+    async function loadForecastQuality() {
+        try {
+            const tableBody = document.getElementById('quality-table-body');
+            tableBody.innerHTML = '<tr><td colspan="7" class="text-muted text-center py-4">Načítám</td></tr>';
+
+            const monthInput = document.getElementById('quality-month');
+            if (!monthInput.value) {
+                const now = new Date();
+                monthInput.value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+            }
+
+            const res = await fetch(`/api/v1/forecast-quality?target_month=${monthInput.value}`);
+            const payload = await res.json();
+
+            if (payload.status === 'success' && payload.data.length > 0) {
+                globalQualityData = payload.data;
+                tableBody.innerHTML = payload.data.map((row, i) => renderQualityRow(row, i)).join('');
+            } else {
+                globalQualityData = [];
+                tableBody.innerHTML = '<tr><td colspan="7" class="text-muted text-center py-8">Žádné predikce pro tento měsíc nebyly nalezeny.</td></tr>';
+            }
+
+            document.getElementById('quality-chart-container').classList.add('u-hidden');
+        } catch (e) {
+            console.error(e);
+            document.getElementById('quality-table-body').innerHTML = '<tr><td colspan="7" class="text-muted text-center py-8">Došlo k chybě při načítání dat.</td></tr>';
+        }
+    }
+
+    function showChart(index) {
+        const data = globalQualityData[index];
+        if (!data) return;
+
+        document.getElementById('chart-title').innerText = `Denní vektory: ${data.scope_name}`;
+        document.getElementById('quality-chart-container').classList.remove('u-hidden');
+
+        // Extract dates (union of keys from both dicts, sorted)
+        const dailyForecasts = data.daily_forecasts || {};
+        const dailyActuals = data.daily_actuals || {};
+
+        // Find forecast date to fill in missing past actuals into forecast
+        const forecastDate = data.forecast_date;
+
+        let allDates = new Set([...Object.keys(dailyForecasts), ...Object.keys(dailyActuals)]);
+        allDates = Array.from(allDates).sort();
+
+        // Calculate cumulative arrays
+        let cumulativeForecast = [];
+        let cumulativeActual = [];
+
+        let runForecast = 0;
+        let runActual = 0;
+
+        allDates.forEach(date => {
+            runActual += (dailyActuals[date] || 0);
+            cumulativeActual.push(runActual);
+
+            runForecast += (dailyForecasts[date] || 0);
+            cumulativeForecast.push(runForecast);
+        });
+
+        const ctx = document.getElementById('daily-vectors-chart').getContext('2d');
+        if (vectorsChart) {
+            vectorsChart.destroy();
+        }
+
+        vectorsChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: allDates,
+                datasets: [
+                    {
+                        label: 'Kumulativní Predikce',
+                        data: cumulativeForecast,
+                        borderColor: '#3b82f6',
+                        backgroundColor: '#3b82f6',
+                        borderDash: [5, 5],
+                        fill: false,
+                        tension: 0.1
+                    },
+                    {
+                        label: 'Kumulativní Skutečnost',
+                        data: cumulativeActual,
+                        borderColor: '#10b981',
+                        backgroundColor: '#10b981',
+                        fill: false,
+                        tension: 0.1
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: {
+                    mode: 'index',
+                    intersect: false,
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        title: { display: true, text: 'Náklady (€)' }
+                    }
+                }
+            }
+        });
+
+        document.getElementById('quality-chart-container').scrollIntoView({ behavior: 'smooth' });
+    }
+
+    loadForecastQuality();
+</script>
