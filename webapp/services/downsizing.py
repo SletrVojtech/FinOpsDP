@@ -33,8 +33,9 @@ def evaluate_downsizing(
     # Get actual instance metadata
     current = crud_downsizing.get_instance_metadata(db_cursor, resource_id)
     if not current:
-        return {"status": "error", "message": "Resource not found"}
-
+        return {"status": "error", "message": "Instance nenalezena"}
+    if not current["instance_type"]:
+        return {"status": "unsupported", "message": "Optimalizace pro tento typ služby není dostupná."}
     # Get current metrics
     tel = crud_downsizing.get_telemetry(db_cursor, resource_id, analysis_days)
 
@@ -100,7 +101,7 @@ def evaluate_downsizing(
         return {
             "status": "success",
             "action": "none",
-            "message": "No smaller instances fit the target workloads.",
+            "message": "Žádná menší instance neodpovídá zátěži.",
             "constraints_applied": constraints,
             "current_instance": current["instance_type"]
         }
@@ -116,52 +117,71 @@ def evaluate_downsizing(
 
     # No catalog price — return best candidate without financials
     if not current_catalog_price or current_catalog_price <= 0:
-        best_candidate = candidates[0]
+        recommendations = []
+        seen_warnings = set()
+        for cand in candidates:
+            # Sort warnings to ensure consistent signature
+            w_tuple = tuple(sorted(cand.get("warnings", [])))
+            if w_tuple not in seen_warnings:
+                recommendations.append({
+                    "recommended_instance": cand["instance_type"],
+                    "warnings": cand.get("warnings", [])
+                })
+                seen_warnings.add(w_tuple)
+                if not w_tuple:
+                    break
+        
         return {
             "status": "success",
             "action": "downsize_recommended",
             "current_instance": current["instance_type"],
-            "recommended_instance": best_candidate["instance_type"],
+            "recommendations": recommendations,
             "constraints_applied": constraints,
-            "warning": "Cost metrics unavailable for ratio calculation.",
+            "warning": "Nedostupné ceny pro výpočet úspor.",
         }
 
-    # Pick the cheapest candidate that is cheaper than current
-    best_candidate = None
-    best_savings_ratio = 0.0
+    # Pick all cheapest candidates up until an exact match is found
+    recommendations = []
+    seen_warnings = set()
 
     for cand in candidates:
-        if cand["hourly_price_usd"] < current_catalog_price: # Now converted to EUR
-            best_candidate = cand
-            best_savings_ratio = (
-                (current_catalog_price - cand["hourly_price_usd"]) / current_catalog_price
-            )
-            break
+        if cand["hourly_price_usd"] < current_catalog_price: # converted to EUR
+            w_tuple = tuple(sorted(cand.get("warnings", [])))
+            if w_tuple not in seen_warnings:
+                best_savings_ratio = (current_catalog_price - cand["hourly_price_usd"]) / current_catalog_price
+                projected_daily_cost = actual_daily_cost * float(1 - best_savings_ratio)
+                monthly_savings_usd = (actual_daily_cost - projected_daily_cost) * 30
+                
+                recommendations.append({
+                    "recommended_instance": cand["instance_type"],
+                    "warnings": cand.get("warnings", []),
+                    "financials": {
+                        "projected_daily_cost_eur": round(projected_daily_cost, 2),
+                        "estimated_monthly_savings_eur": round(monthly_savings_usd, 2),
+                        "savings_percentage": round(best_savings_ratio * 100, 2),
+                    }
+                })
+                seen_warnings.add(w_tuple)
+                
+                if not w_tuple:
+                    break
 
-    if not best_candidate:
+    if not recommendations:
         return {
             "status": "success",
             "action": "none",
-            "message": "Current instance is already the most cost-effective option.",
+            "message": "Aktuální instance je nejlevnější dostupnou variantou.",
+            "current_instance": current["instance_type"],
             "constraints_applied": constraints,
         }
-
-    # Calculate financials
-    projected_daily_cost = actual_daily_cost * float(1 - best_savings_ratio)
-    monthly_savings_usd = (actual_daily_cost - projected_daily_cost) * 30
 
     return {
         "status": "success",
         "action": "downsize_recommended",
         "current_instance": current["instance_type"],
-        "recommended_instance": best_candidate["instance_type"],
+        "recommendations": recommendations,
         "constraints_applied": constraints,
-        "financials": {
-            "current_actual_daily_cost_eur": round(actual_daily_cost, 2),
-            "projected_daily_cost_eur": round(projected_daily_cost, 2),
-            "estimated_monthly_savings_eur": round(monthly_savings_usd, 2), # monthly_savings_usd is now in EUR
-            "savings_percentage": round(best_savings_ratio * 100, 2),
-        },
+        "current_actual_daily_cost_eur": round(actual_daily_cost, 2),
         "telemetry_used": {
             "cpu_p95": round(tel["cpu_p95"], 2) if tel["cpu_p95"] else None,
             "ram_max": tel["ram_max"],

@@ -1,0 +1,58 @@
+<div class="mb-4">
+    <h2>Filtrování Tagů</h2>
+    <p class="text-muted">Pravidla definovaná zde skryjí určité tagy (podle názvu klíče) z aplikací</p>
+</div>
+
+<div class="card mb-6">
+    <div class="card-header">
+        <h4 class="mb-0">Přidat nové pravidlo</h4>
+    </div>
+    <div class="card-body">
+        <form hx-post="/ui/rules" hx-target="#app-content" hx-swap="innerHTML" class="flex gap-4 items-end">
+            <div class="w-full">
+                <label class="text-sm font-medium text-muted block mb-1">Vzor (Pattern) klíče Tagu</label>
+                <input type="text" name="pattern" placeholder="Např. aks-managed*" class="btn btn-outline w-full" style="text-align: left; padding: 10px 12px; cursor: text;" required>
+            </div>
+            
+            <button type="submit" class="btn btn-primary" style="height: 44px; font-weight: 600; white-space: nowrap;">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                Vytvořit pravidlo
+            </button>
+        </form>
+    </div>
+</div>
+
+<div class="card">
+    <div class="table-container">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Vzor (Pattern)</th>
+                    <th style="text-align: right;">Akce</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for rule in rules %}
+                <tr id="rule-row-{{ rule.id }}">
+                    <td><span class="text-xs text-muted">#{{ rule.id }}</span></td>
+                    <td class="font-medium font-mono text-sm">{{ rule.pattern }}</td>
+                    <td style="text-align: right;">
+                        <button hx-delete="/ui/rules/{{ rule.id }}" hx-target="#rule-row-{{ rule.id }}" hx-swap="outerHTML" hx-confirm="Opravdu smazat toto pravidlo?" class="btn btn-ghost" style="color: var(--color-danger); border: none;">
+                            Smazat
+                        </button>
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="3" class="text-muted text-center py-8">
+                        <div class="flex flex-col items-center gap-2">
+                            <span>Zatím nejsou nastavena žádná pravidla pro filtrování tagů.</span>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>

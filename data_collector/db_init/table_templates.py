@@ -120,12 +120,13 @@ SCHEMA_DEFINITIONS = {
         Percentage DECIMAL(5,2) NOT NULL CHECK (Percentage > 0 AND Percentage <= 100)
     );
     """,
-    "downsizingrules":"""
-    CREATE TABLE DownsizingRules (
+    "rules":"""
+    CREATE TABLE Rules (
         Id SERIAL PRIMARY KEY,
         ScopeId INTEGER REFERENCES Entities(Id),
         Tags JSONB,
         ExcludedPatterns JSONB,
+        RuleType VARCHAR(50) DEFAULT 'downsizing_exclusion',
         UNIQUE(ScopeId, Tags)
     );
     """,

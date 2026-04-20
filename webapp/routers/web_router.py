@@ -1,9 +1,9 @@
 import urllib.parse
-from fastapi import APIRouter, Request, Depends, HTTPException
+from fastapi import APIRouter, Request, Depends, HTTPException, Form
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from db.database import get_db_cursor
-from crud import entities, metrics, costs, allocations, krr, downsizing_rules
+from crud import entities, metrics, costs, allocations, krr, rules
 from services.utils import humanize_memory, humanize_cpu, extract_active_tags
 from services.kube_chargeback import get_daily_namespace_allocation
 from services import cost_service as costs_service
@@ -52,7 +52,7 @@ def get_scope(request: Request, node_id: int = 0, cursor = Depends(get_db_cursor
         "items": items,
         "active_tags": active_tags,
         "current_qs": current_qs,
-        "patterns": downsizing_rules.get_exact_excluded_patterns(cursor, node_id, active_tags),
+        "patterns": rules.get_exact_excluded_patterns(cursor, node_id, active_tags),
         "scope_id": node_id,
     })
 
@@ -125,9 +125,9 @@ def view_allocations_manager(
     cursor = Depends(get_db_cursor)
 ):
     """List and edit allocation rules"""
-    rules = allocations.get_allocation_rules(cursor)
+    allocs = allocations.get_allocation_rules(cursor)
     return templates.TemplateResponse(request, "allocations_manager.html", {
-        "rules": rules
+        "rules": allocs
     })
 
 
@@ -227,6 +227,30 @@ def cluster_cost_detail(request: Request, cluster_id: int,
         "month": target_month_str
     })
 
+@router.get("/ui/rules", response_class=HTMLResponse)
+def view_rules_dashboard(request: Request, cursor = Depends(get_db_cursor)):
+    """Shows the generic tag-filtering rules dashboard"""
+    tag_rules = rules.get_tag_filtering_rules(cursor)
+    return templates.TemplateResponse(request, "rules_dashboard.html", {"rules": tag_rules})
+
+@router.post("/ui/rules", response_class=HTMLResponse)
+def add_tag_rule(request: Request, pattern: str = Form(...), cursor = Depends(get_db_cursor)):
+    """Add a new tag filtering rule and update the view"""
+    if pattern and pattern.strip():
+        rules.add_tag_filtering_rule(cursor, pattern.strip())
+        cursor.connection.commit()
+    # Read back all and re-render
+    tag_rules = rules.get_tag_filtering_rules(cursor)
+    return templates.TemplateResponse(request, "rules_dashboard.html", {"rules": tag_rules})
+
+@router.delete("/ui/rules/{rule_id}")
+def delete_tag_rule(request: Request, rule_id: int, cursor = Depends(get_db_cursor)):
+    """Delete a rule and return empty so htmx removes the row."""
+    rules.delete_rule(cursor, rule_id)
+    cursor.connection.commit()
+    # It will trigger an element removal on the UI
+    return HTMLResponse("")
+
 @router.get("/ui/anomalies", response_class=HTMLResponse)
 def view_anomalies_dashboard(request: Request):
     """Shows a page with the anomalies dashboard."""
@@ -244,7 +268,7 @@ async def ui_set_downsizing_rules(
     patterns = [p.strip() for p in excluded_patterns_str.split(",") if p.strip()]
     
     active_tags = extract_active_tags(request)
-    downsizing_rules.set_excluded_patterns(cursor, scope_id, active_tags, patterns)
+    rules.set_excluded_patterns(cursor, scope_id, active_tags, patterns)
     cursor.connection.commit()
     
     # Re-render the card partial
@@ -256,3 +280,9 @@ async def ui_set_downsizing_rules(
         "patterns": patterns,
         "active_tags": active_tags
     })
+
+
+@router.get("/ui/forecast-quality", response_class=HTMLResponse)
+def view_forecast_quality_dashboard(request: Request):
+    """Shows a page with the forecast quality dashboard."""
+    return templates.TemplateResponse(request, "forecast_quality_dashboard.html", {})

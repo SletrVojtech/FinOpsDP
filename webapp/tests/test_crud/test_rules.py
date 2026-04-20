@@ -1,7 +1,7 @@
 import json
 import pytest
 from unittest.mock import MagicMock
-from crud.downsizing_rules import (
+from crud.rules import (
     set_excluded_patterns,
     get_exact_excluded_patterns,
     get_entity_excluded_patterns
@@ -20,7 +20,7 @@ def test_set_excluded_patterns():
     args = cursor.execute.call_args[0]
     params = args[1]
     
-    assert "INSERT INTO DownsizingRules" in args[0]
+    assert "INSERT INTO Rules" in args[0]
     assert params["scope_id"] == scope_id
     # Check that tags and patterns are serialized to JSON strings
     assert params["tags"] == json.dumps(tags)

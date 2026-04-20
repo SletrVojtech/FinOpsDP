@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from services import downsizing as downsizing_service
 from typing import List
 import crud.costs as cost
-from crud import allocations, entities, metrics, downsizing_rules
+from crud import allocations, entities, metrics, rules
 from db.database import get_db_cursor
 
 
@@ -126,7 +126,7 @@ def api_set_downsizing_rules(
 ):
     """Set downsizing rules for the current scope and tags."""
     active_tags = extract_active_tags(request)
-    downsizing_rules.set_excluded_patterns(cursor, scope_id, active_tags, payload.excluded_patterns)
+    rules.set_excluded_patterns(cursor, scope_id, active_tags, payload.excluded_patterns)
     cursor.connection.commit()
     return {"status": "success"}
 
@@ -138,7 +138,7 @@ def api_get_downsizing_rules(
 ):
     """Get downsizing rules for the current scope and tags."""
     active_tags = extract_active_tags(request)
-    patterns = downsizing_rules.get_exact_excluded_patterns(cursor, scope_id, active_tags)
+    patterns = rules.get_exact_excluded_patterns(cursor, scope_id, active_tags)
     return {"status": "success", "excluded_patterns": patterns}
 
 @router.get("/downsizing/{entity_id}")
@@ -159,7 +159,7 @@ def get_downsizing_recommendation(
     row = cursor.fetchone()
     entity_tags = row[0] if row and row[0] else {}
 
-    auto_excluded = downsizing_rules.get_entity_excluded_patterns(cursor, scope_id, entity_tags)
+    auto_excluded = rules.get_entity_excluded_patterns(cursor, scope_id, entity_tags)
 
     result = downsizing_service.evaluate_downsizing(
         db_cursor=cursor,
@@ -189,3 +189,22 @@ def api_mark_anomaly_seen(anomaly_id: int, cursor = Depends(get_db_cursor)):
     cost.mark_anomaly_seen(cursor, anomaly_id)
     cursor.connection.commit()
     return {"status": "success"}
+
+
+@router.get("/forecast-quality")
+def api_get_forecast_quality(
+    target_month: str = Query(None, description="Month in YYYY-MM format"),
+    cursor = Depends(get_db_cursor)
+):
+    """Returns forecast quality report comparing latest forecast vs actual costs."""
+    if target_month:
+        try:
+            year, month = map(int, target_month.split('-'))
+            period_date = date(year, month, 1)
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=422, detail="Invalid target_month, expected YYYY-MM")
+    else:
+        period_date = date.today().replace(day=1)
+
+    data = cost.get_forecast_quality(cursor, period_date)
+    return {"status": "success", "data": data}
