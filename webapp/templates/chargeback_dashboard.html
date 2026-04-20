@@ -120,7 +120,7 @@
 
         var annotations = {};
         (data.anomalies || []).forEach(function(a, i) {
-            if (!a.is_anomaly) return;
+            if (!a.is_anomaly || a.type !== 'spike') return;
             annotations['a'+i] = { type:'point', xValue:labels[i], yValue:a.actual, yScaleID:'y1',
                 radius:7, backgroundColor:'rgba(220,53,69,0.85)', borderColor:'#fff', borderWidth:2 };
         });

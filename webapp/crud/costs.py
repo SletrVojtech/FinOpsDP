@@ -322,3 +322,84 @@ def mark_anomaly_seen(cursor, anomaly_id: int):
     cursor.execute("""
         UPDATE CostAnomalies SET IsSeen = TRUE WHERE Id = %s;
     """, (anomaly_id,))
+
+
+def get_forecast_quality(cursor, target_month: date):
+    """
+    Returns the forecast quality data for the given target month.
+    Fetches all ForecastHistory for each scope/tags, averages them (to represent the prediction),
+    and compares that with the latest available forecast (which acts as the actual data by the end of the month).
+    """
+    query = """
+        SELECT fh.ScopeId, e.ResourceName, fh.Tags, fh.ForecastDate, 
+               fh.ProjectedAmount, fh.DailyForecasts, fh.CalculatedAt
+        FROM ForecastHistory fh
+        LEFT JOIN Entities e ON fh.ScopeId = e.Id
+        WHERE fh.TargetMonth = %s AND fh.DailyForecasts IS NOT NULL
+        ORDER BY fh.ScopeId NULLS FIRST, fh.CalculatedAt ASC;
+    """
+    cursor.execute(query, (target_month,))
+    forecast_rows = cursor.fetchall()
+    
+    import json
+    from collections import defaultdict
+    grouped = defaultdict(list)
+    
+    for row in forecast_rows:
+        scope_id = row[0] if row[0] is not None else 0
+        scope_name = row[1] or "Globální (Vše)"
+        tags_dict = row[2] or {}
+        # Serialize tags to string for consistent grouping
+        tags_str = json.dumps(tags_dict, sort_keys=True)
+        
+        grouped[f"{scope_id}|{scope_name}|{tags_str}"].append({
+            "tags": tags_dict,
+            "forecast_date": row[3],
+            "projected_amount": float(row[4]) if row[4] is not None else 0.0,
+            "daily_forecasts": row[5] or {},
+            "calculated_at": row[6]
+        })
+        
+    results = []
+    
+    for group_key, forecasts in grouped.items():
+        parts = group_key.split("|", 2)
+        scope_id = int(parts[0])
+        scope_name = parts[1]
+        tags = forecasts[0]["tags"]
+        
+        # The latest forecast represents the 'actual' status at the end of the month
+        latest_forecast = forecasts[-1]
+        latest_amount = latest_forecast["projected_amount"]
+        latest_daily = latest_forecast["daily_forecasts"]
+        
+        # We aggregate all forecasts to represent the 'prediction'
+        total_amount = sum(f["projected_amount"] for f in forecasts)
+        avg_amount = total_amount / len(forecasts) if forecasts else 0.0
+        
+        avg_daily = {}
+        all_keys = set(k for f in forecasts for k in f["daily_forecasts"].keys())
+        for k in all_keys:
+            vals = [float(f["daily_forecasts"].get(k, 0.0)) for f in forecasts]
+            avg_daily[k] = sum(vals) / len(vals)
+            
+        variance = latest_amount - avg_amount
+        if avg_amount > 0:
+            accuracy = 100.0 - min(100.0, abs(variance) / avg_amount * 100.0)
+        else:
+            accuracy = 100.0 if latest_amount == 0 else 0.0
+            
+        results.append({
+            "scope_id": scope_id,
+            "scope_name": scope_name,
+            "tags": tags,
+            "forecast_date": latest_forecast["forecast_date"].isoformat() if latest_forecast["forecast_date"] else None,
+            "projected_amount": avg_amount,
+            "actual_amount": latest_amount,
+            "variance": variance,
+            "accuracy": accuracy,
+            "daily_forecasts": avg_daily,
+            "daily_actuals": latest_daily
+        })
+        
+    return results

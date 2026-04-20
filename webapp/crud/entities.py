@@ -75,9 +75,30 @@ def get_scoped_top_tags(cursor, parent_id=None, limit=15):
         # Starting in the root
         parent_id = 0
 
+    from crud import rules
+    import re
+    
+    tag_rules = rules.get_tag_filtering_rules(cursor)
+    regex_filter = None
+    if tag_rules:
+        regex_parts = []
+        for r in tag_rules:
+            if r['pattern']:
+                escaped = re.escape(r['pattern']).replace('\\*', '.*')
+                regex_parts.append(f"({escaped})")
+        if regex_parts:
+            regex_filter = "^(" + "|".join(regex_parts) + ")$"
+
+    where_clause = "WHERE s.Tags IS NOT NULL"
+    params = [parent_id]
+    if regex_filter:
+        where_clause += " AND key !~ %s"
+        params.append(regex_filter)
+    params.append(limit)
+
     # Already scoped, recursively going down.
     # We calculate the total count of entities in the subtree to provide "tag quality" metrics.
-    cursor.execute("""
+    cursor.execute(f"""
         WITH RECURSIVE SubTree AS (
             SELECT Id, Tags FROM Entities WHERE Id = %s
             UNION ALL
@@ -89,9 +110,9 @@ def get_scoped_top_tags(cursor, parent_id=None, limit=15):
         )
         SELECT key, COUNT(*) as freq, (SELECT total_count FROM Stats) as total
         FROM SubTree s, jsonb_object_keys(s.Tags) as key
-        WHERE s.Tags IS NOT NULL
+        {where_clause}
         GROUP BY key ORDER BY freq DESC LIMIT %s;
-    """, (parent_id, limit))
+    """, tuple(params))
         
     return [{"key": r[0], "count": r[1], "total": r[2]} for r in cursor.fetchall()]
 
@@ -174,7 +195,7 @@ def get_dynamic_items(cursor, scope_id: int = None, tags_filter: dict = None):
             u.ParentId,
             """+has_metrics_sql +""" as has_metrics
         FROM UniqueNodes u
-        ORDER BY u.Type, u.ResourceName;
+        ORDER BY has_children DESC, has_metrics DESC, u.Type, u.ResourceName;
     """
     
     cursor.execute(base_sql, params)

@@ -31,7 +31,7 @@
         </div>
 
         <div id="recommendation-panel" class="mb-4" style="background: rgba(16, 185, 129, 0.05); padding: 16px; border-radius: 8px; border-left: 4px solid var(--color-primary);">
-            <h3 class="mb-2" style="color: var(--color-primary);">FinOps Doporučení (Rightsizing)</h3>
+            <h3 class="mb-2" style="color: var(--color-primary);">Doporučení</h3>
             <div id="recommendation-content" class="text-sm">
                 <p>Počítám doporučení</p>
             </div>
@@ -168,6 +168,11 @@ async function renderAllCharts() {
                 return;
             }
 
+            if (data.status === "unsupported") {
+                contentDiv.innerHTML = `<p>${data.message}</p>`;
+                return;
+            }
+
             if (data.action === "none") {
                 contentDiv.innerHTML = `<p> <strong>${data.message || "Instance je optimální."}</strong> (Současný typ: ${data.current_instance || "Neznámý"})</p>`;
                 return;
@@ -175,15 +180,43 @@ async function renderAllCharts() {
 
             // Better option was found
             if (data.action === "downsize_recommended") {
-                const fin = data.financials;
+                const recsHtml = data.recommendations.map(rec => {
+                    let warningsHtml = '';
+                    if (rec.warnings && rec.warnings.length > 0) {
+                        warningsHtml = `
+                        <div class="mt-2 text-sm text-yellow-600 p-2 rounded" style="background-color: var(--color-surface); border-left: 4px solid #F59E0B; margin-bottom: 8px;">
+                            <strong>Upozornění:</strong> Doporučená instance nemá všechny původní vlastnosti: ${rec.warnings.join(', ')}
+                        </div>`;
+                    }
+                    
+                    if (rec.financials) {
+                        const fin = rec.financials;
+                        return `
+                        <div class="mb-4 pb-2" style="border-bottom: 1px solid var(--color-border);">
+                            <p><strong>Doporučená změna:</strong> Změnit z <code>${data.current_instance}</code> na <code style="color: green; font-size: 1.1em;">${rec.recommended_instance}</code></p>
+                            ${warningsHtml}
+                            <ul>
+                                <li>Odhadovaná měsíční úspora: <strong>€${fin.estimated_monthly_savings_eur}</strong> (${fin.savings_percentage}% dolů)</li>
+                                <li>Současná denní cena: €${data.current_actual_daily_cost_eur} -> Nová denní cena: €${fin.projected_daily_cost_eur}</li>
+                            </ul>
+                        </div>`;
+                    } else {
+                        return `
+                        <div class="mb-4 pb-2" style="border-bottom: 1px solid var(--color-border);">
+                            <p><strong>Doporučená změna:</strong> Změnit z <code>${data.current_instance}</code> na <code style="color: green; font-size: 1.1em;">${rec.recommended_instance}</code></p>
+                            ${warningsHtml}
+                        </div>`;
+                    }
+                }).join('');
+
+                const telemetryText = data.telemetry_used 
+                    ? `(Vypočteno na základě ${analysisDays} dní. Max CPU P95: ${data.telemetry_used.cpu_p95}%)`
+                    : '';
+
                 contentDiv.innerHTML = `
-                    <p><strong>Doporučená změna:</strong> Změnit z <code>${data.current_instance}</code> na <code style="color: green; font-size: 1.1em;">${data.recommended_instance}</code></p>
-                    <ul>
-                        <li>Odhadovaná měsíční úspora: <strong>€${fin.estimated_monthly_savings_eur}</strong> (${fin.savings_percentage}% dolů)</li>
-                        <li>Současná denní cena: €${fin.current_actual_daily_cost_eur} -> Nová denní cena: €${fin.projected_daily_cost_eur}</li>
-                    </ul>
+                    ${recsHtml}
                     <p style="font-size: 0.9em; color: #666;">
-                        (Vypočteno na základě ${analysisDays} dní. Max CPU P95: ${data.telemetry_used.cpu_p95}%)
+                        ${telemetryText}
                     </p>
                 `;
             }

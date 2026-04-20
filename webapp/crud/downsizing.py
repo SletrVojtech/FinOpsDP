@@ -17,7 +17,7 @@ def get_instance_metadata(db_cursor, resource_id: int) -> Optional[Dict[str, Any
             h.has_local_storage,
             h.supports_premium_storage
         FROM Entities e
-        JOIN hardwarecatalog h
+        LEFT JOIN hardwarecatalog h
           ON e.extras->>'instance_type' = h.instance_type
         WHERE e.Id = %(resource_id)s
         LIMIT 1;
@@ -70,7 +70,7 @@ def get_telemetry(db_cursor, resource_id: int, analysis_days: int) -> Dict[str, 
               AND "timestamp" >= NOW() - (%(days)s * INTERVAL '1 day')
         )
         SELECT
-            (SELECT percentile_cont(0.95) WITHIN GROUP (ORDER BY val) FROM time_filtered WHERE metric_name = 'cpu_usage_avg') AS cpu_p95,
+            (SELECT percentile_cont(0.95) WITHIN GROUP (ORDER BY val) FROM time_filtered WHERE metric_name = 'cpu_usage_max') AS cpu_p95,
             (SELECT MAX(val) FROM time_filtered WHERE metric_name = 'mem_available_avg') AS ram_max,
             (SELECT MAX(val) FROM time_filtered WHERE metric_name = 'disk_read_ops_avg') AS disk_read_max,
             (SELECT MAX(val) FROM time_filtered WHERE metric_name = 'disk_write_ops_avg') AS disk_write_max,
@@ -127,25 +127,18 @@ def get_suitable_candidates(db_cursor, provider: str, region: str, os: str,
     """
     Query for viable downsizing candidates.
 
-    Hard constraints:
-      - architecture
+    Hard constraints kept in SQL:
       - is_gpu
+
+    Other constraints are checked in Python and added as warnings:
+      - architecture
       - is_confidential
       - has_local_storage
-
-    Soft constraint (affects ordering):
-      - supports_premium_storage: if the current instance uses premium storage,
-        prefer premium-capable candidates first, but don't exclude non-premium ones.
+      - supports_premium_storage
     """
     filter_clause = ""
     if sql_like_patterns:
         filter_clause = "AND h.instance_type NOT LIKE ALL(%(patterns)s)"
-
-    # Premium storage ordering: if current uses premium, rank premium-capable first.
-    # If current doesn't use premium, order is irrelevant — price already sorts ASC.
-    premium_order = (
-        "h.supports_premium_storage DESC," if current_supports_premium else ""
-    )
 
     query = f"""
         SELECT
@@ -170,13 +163,10 @@ def get_suitable_candidates(db_cursor, provider: str, region: str, os: str,
           AND (h.baseline_throughput_mbps IS NULL OR h.baseline_throughput_mbps >= %(req_net_mbps)s)
           AND p.hourly_price_usd IS NOT NULL
           AND p.hourly_price_usd > 0
-          -- Hard class constraints
-          AND h.architecture      = %(architecture)s
+          -- Hard class constraint
           AND h.is_gpu            = %(is_gpu)s
-          AND h.is_confidential   = %(is_confidential)s
-          AND h.has_local_storage = %(has_local_storage)s
           {filter_clause}
-        ORDER BY {premium_order} p.hourly_price_usd ASC;
+        ORDER BY p.hourly_price_usd ASC;
     """
     db_cursor.execute(query, {
         "provider": provider,
@@ -186,25 +176,40 @@ def get_suitable_candidates(db_cursor, provider: str, region: str, os: str,
         "req_ram": req_ram,
         "req_iops": req_iops,
         "req_net_mbps": req_net_mbps,
-        "architecture": architecture,
         "is_gpu": is_gpu,
-        "is_confidential": is_confidential,
-        "has_local_storage": has_local_storage,
         "patterns": sql_like_patterns,
         "exchange_rate": exchange_rate,
     })
 
-    return [
-        {
+    candidates = []
+    for r in db_cursor.fetchall():
+        c_arch = r[4]
+        c_gpu = r[5]
+        c_conf = r[6]
+        c_local = r[7]
+        c_premium = r[8]
+        
+        warns = []
+        if c_arch != architecture:
+            warns.append("jiná architektura procesoru")
+        if is_confidential and not c_conf:
+            warns.append("není confidential")
+        if has_local_storage and not c_local:
+            warns.append("bez lokálního úložiště")
+        if current_supports_premium and not c_premium:
+            warns.append("nepodporuje prémiové úložiště")
+            
+        candidates.append({
             "instance_type": r[0],
             "vcpu": r[1],
             "memory_gb": r[2],
             "hourly_price_usd": r[3],
-            "architecture": r[4],
-            "is_gpu": r[5],
-            "is_confidential": r[6],
-            "has_local_storage": r[7],
-            "supports_premium_storage": r[8],
-        }
-        for r in db_cursor.fetchall()
-    ]
+            "architecture": c_arch,
+            "is_gpu": c_gpu,
+            "is_confidential": c_conf,
+            "has_local_storage": c_local,
+            "supports_premium_storage": c_premium,
+            "warnings": warns
+        })
+
+    return candidates
