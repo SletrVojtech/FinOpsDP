@@ -10,7 +10,7 @@ def test_evaluate_downsizing_resource_not_found(mocker):
     result = evaluate_downsizing(mock_cursor, 1)
     
     assert result["status"] == "error"
-    assert result["message"] == "Resource not found"
+    assert result["message"] == "Instance nenalezena"
 
 def test_evaluate_downsizing_no_candidates(mocker):
     mock_cursor = MagicMock()
@@ -33,7 +33,7 @@ def test_evaluate_downsizing_no_candidates(mocker):
     result = evaluate_downsizing(mock_cursor, 1)
     
     assert result["status"] == "success"
-    assert "no smaller instances fit" in result["message"].lower()
+    assert "žádná menší instance" in result["message"].lower()
 
 @pytest.mark.skip(reason="Skipping due to exchange rate API")
 def test_evaluate_downsizing_recommendation(mocker):

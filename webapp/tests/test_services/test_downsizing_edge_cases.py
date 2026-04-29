@@ -86,4 +86,4 @@ def test_evaluate_downsizing_no_cheaper_candidates(mock_crud):
     
     assert res["status"] == "success"
     assert res["action"] == "none"
-    assert "most cost-effective" in res["message"]
+    assert "nejlevnější dostupnou" in res["message"]
