@@ -8,14 +8,14 @@ def get_instance_metadata(db_cursor, resource_id: int) -> Optional[Dict[str, Any
             e.providername,
             e.regionid,
             e.extras->>'normalized_os'    AS os,
-            h.instance_type,
+            h.instancetype,
             h.vcpu,
-            h.memory_gb,
+            h.memorygb,
             h.architecture,
-            h.is_gpu,
-            h.is_confidential,
-            h.has_local_storage,
-            h.supports_premium_storage
+            h.isgpu,
+            h.isconfidential,
+            h.haslocalstorage,
+            h.supportspremiumstorage
         FROM Entities e
         LEFT JOIN hardwarecatalog h
           ON e.extras->>'instance_type' = h.instance_type
@@ -103,9 +103,9 @@ def get_actual_daily_cost(db_cursor, resource_id: str, analysis_days: int, excha
 def get_catalog_hourly_price(db_cursor, provider: str, region: str, os: str, instance_type: str, exchange_rate: float = 1.0) -> Optional[float]:
     """Get listed price for given instance, converted to EUR."""
     query = """
-        SELECT hourly_price_usd * %(exchange_rate)s FROM pricingcatalog
+        SELECT hourlypriceusd * %(exchange_rate)s FROM pricingcatalog
         WHERE cloud = %(provider)s AND region = %(region)s
-          AND os = %(os)s AND instance_type = %(instance_type)s
+          AND os = %(os)s AND instancetype = %(instance_type)s
         LIMIT 1;
     """
     db_cursor.execute(query, {
@@ -127,46 +127,46 @@ def get_suitable_candidates(db_cursor, provider: str, region: str, os: str,
     """
     Query for viable downsizing candidates.
 
-    Hard constraints kept in SQL:
-      - is_gpu
+    Hard constraints in SQL:
+      - isgpu
 
-    Other constraints are checked in Python and added as warnings:
+    Other constraints are checked in code and added as warnings:
       - architecture
-      - is_confidential
-      - has_local_storage
-      - supports_premium_storage
+      - isconfidential
+      - haslocalstorage
+      - supportspremiumstorage
     """
     filter_clause = ""
     if sql_like_patterns:
-        filter_clause = "AND h.instance_type NOT LIKE ALL(%(patterns)s)"
+        filter_clause = "AND h.instancetype NOT LIKE ALL(%(patterns)s)"
 
     query = f"""
         SELECT
-            h.instance_type,
+            h.instancetype,
             h.vcpu,
-            h.memory_gb,
-            p.hourly_price_usd * %(exchange_rate)s,
+            h.memorygb,
+            p.hourlypriceusd * %(exchange_rate)s,
             h.architecture,
-            h.is_gpu,
-            h.is_confidential,
-            h.has_local_storage,
-            h.supports_premium_storage
+            h.isgpu,
+            h.isconfidential,
+            h.haslocalstorage,
+            h.supportspremiumstorage
         FROM hardwarecatalog h
         JOIN pricingcatalog p
-          ON h.cloud = p.cloud AND h.instance_type = p.instance_type
+          ON h.cloud = p.cloud AND h.instancetype = p.instancetype
         WHERE h.cloud          = %(provider)s
           AND p.region         = %(region)s
           AND p.os             = %(os)s
           AND h.vcpu           >= %(req_vcpu)s
-          AND h.memory_gb      >= %(req_ram)s
-          AND (h.baseline_iops IS NULL OR h.baseline_iops >= %(req_iops)s)
-          AND (h.baseline_throughput_mbps IS NULL OR h.baseline_throughput_mbps >= %(req_net_mbps)s)
-          AND p.hourly_price_usd IS NOT NULL
-          AND p.hourly_price_usd > 0
+          AND h.memorygb      >= %(req_ram)s
+          AND (h.baselineiops IS NULL OR h.baselineiops >= %(req_iops)s)
+          AND (h.baselinethroughputmbps IS NULL OR h.baselinethroughputmbps >= %(req_net_mbps)s)
+          AND p.hourlypriceusd IS NOT NULL
+          AND p.hourlypriceusd > 0
           -- Hard class constraint
-          AND h.is_gpu            = %(is_gpu)s
+          AND h.isgpu            = %(is_gpu)s
           {filter_clause}
-        ORDER BY p.hourly_price_usd ASC;
+        ORDER BY p.hourlypriceusd ASC;
     """
     db_cursor.execute(query, {
         "provider": provider,

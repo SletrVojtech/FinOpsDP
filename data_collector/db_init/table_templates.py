@@ -16,8 +16,8 @@ SCHEMA_DEFINITIONS = {
         Id SERIAL PRIMARY KEY,
         ExternalId VARCHAR(255) UNIQUE,
         ResourceName VARCHAR(255),
-        ResourceType VARCHAR(50),
-        RegionId VARCHAR(20),                   -- 'account', 'group', 'resource'
+        ResourceType VARCHAR(50),               -- 'account', 'group', 'resource'
+        RegionId VARCHAR(20),                   
         ParentId INTEGER REFERENCES Entities(Id),
         ProviderName VARCHAR(20),          -- AWS, Azure, K8s
         MetaHash VARCHAR(32),
@@ -149,34 +149,34 @@ SCHEMA_DEFINITIONS = {
     """,
     "hardwarecatalog":"""
     CREATE TABLE HardwareCatalog (
-        cloud VARCHAR(50) NOT NULL,
-        instance_type VARCHAR(100) NOT NULL,
-        instance_family VARCHAR(100),
-        vcpu INTEGER,
-        memory_gb NUMERIC(10, 2),
-        baseline_iops INTEGER,
-        baseline_throughput_mbps NUMERIC(15, 2),
-        network_performance VARCHAR(100),
+        Cloud VARCHAR(50) NOT NULL,
+        InstanceType VARCHAR(100) NOT NULL,
+        InstanceFamily VARCHAR(100),
+        VCPU INTEGER,
+        MemoryGB NUMERIC(10, 2),
+        BaselineIOPS INTEGER,
+        BaselineThroughputMBps NUMERIC(15, 2),
+        NetworkPerformance VARCHAR(100),
         -- Instance class constraints
-        architecture VARCHAR(10) NOT NULL DEFAULT 'x86_64',
-        is_gpu BOOLEAN NOT NULL DEFAULT FALSE,
-        is_confidential BOOLEAN NOT NULL DEFAULT FALSE,
-        has_local_storage BOOLEAN NOT NULL DEFAULT FALSE,
-        supports_premium_storage BOOLEAN NOT NULL DEFAULT FALSE,
+        Architecture VARCHAR(10) NOT NULL DEFAULT 'x86_64',
+        IsGPU BOOLEAN NOT NULL DEFAULT FALSE,
+        IsConfidential BOOLEAN NOT NULL DEFAULT FALSE,
+        HasLocalStorage BOOLEAN NOT NULL DEFAULT FALSE,
+        SupportsPremiumStorage BOOLEAN NOT NULL DEFAULT FALSE,
         
-        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY (cloud, instance_type)
+        UpdatedAt TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (Cloud, InstanceType)
     );
     """,
     "pricingcatalog":"""
     CREATE TABLE pricingcatalog (
-        cloud VARCHAR(50) NOT NULL,
-        instance_type VARCHAR(100) NOT NULL,
-        region VARCHAR(100) NOT NULL,
-        os VARCHAR(50) NOT NULL,
-        hourly_price_usd NUMERIC(15, 6) NOT NULL,
-        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY (cloud, instance_type, region, os)
+        Cloud VARCHAR(50) NOT NULL,
+        InstanceType VARCHAR(100) NOT NULL,
+        Region VARCHAR(100) NOT NULL,
+        OS VARCHAR(50) NOT NULL,
+        HourlyPriceUsd NUMERIC(15, 6) NOT NULL,
+        UpdatedAt TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (Cloud, InstanceType, Region, OS)
     );
     """
 }

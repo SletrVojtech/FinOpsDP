@@ -31,31 +31,31 @@ class CatalogProcessor(BaseProcessor):
         """Bulk-upsert of hardware specifications."""
         query = """
             INSERT INTO hardwarecatalog AS target (
-                cloud, instance_type, instance_family, vcpu, memory_gb,
-                baseline_iops, baseline_throughput_mbps, network_performance,
-                architecture, is_gpu, is_confidential, has_local_storage, supports_premium_storage
+                Cloud, InstanceType, InstanceFamily, VCPU, MemoryGB,
+                BaselineIOPS, BaselineThroughputMBps, NetworkPerformance,
+                Architecture, IsGPU, IsConfidential, HasLocalStorage, SupportsPremiumStorage
             ) VALUES %s
-            ON CONFLICT (cloud, instance_type) DO UPDATE SET
-                instance_family = EXCLUDED.instance_family,
-                vcpu = EXCLUDED.vcpu,
-                memory_gb = EXCLUDED.memory_gb,
-                baseline_iops = EXCLUDED.baseline_iops,
-                baseline_throughput_mbps = EXCLUDED.baseline_throughput_mbps,
-                network_performance = EXCLUDED.network_performance,
-                architecture = EXCLUDED.architecture,
-                is_gpu = EXCLUDED.is_gpu,
-                is_confidential = EXCLUDED.is_confidential,
-                has_local_storage = EXCLUDED.has_local_storage,
-                supports_premium_storage = EXCLUDED.supports_premium_storage,
-                updated_at = CURRENT_TIMESTAMP
-            WHERE target.vcpu != EXCLUDED.vcpu
-               OR target.memory_gb != EXCLUDED.memory_gb
-               OR target.baseline_iops IS DISTINCT FROM EXCLUDED.baseline_iops
-               OR target.architecture IS DISTINCT FROM EXCLUDED.architecture
-               OR target.is_gpu != EXCLUDED.is_gpu
-               OR target.is_confidential != EXCLUDED.is_confidential
-               OR target.has_local_storage != EXCLUDED.has_local_storage
-               OR target.supports_premium_storage != EXCLUDED.supports_premium_storage;
+            ON CONFLICT (Cloud, InstanceType) DO UPDATE SET
+                InstanceFamily = EXCLUDED.InstanceFamily,
+                VCPU = EXCLUDED.VCPU,
+                MemoryGB = EXCLUDED.MemoryGB,
+                BaselineIOPS = EXCLUDED.BaselineIOPS,
+                BaselineThroughputMBps = EXCLUDED.BaselineThroughputMBps,
+                NetworkPerformance = EXCLUDED.NetworkPerformance,
+                Architecture = EXCLUDED.Architecture,
+                IsGPU = EXCLUDED.IsGPU,
+                IsConfidential = EXCLUDED.IsConfidential,
+                HasLocalStorage = EXCLUDED.HasLocalStorage,
+                SupportsPremiumStorage = EXCLUDED.SupportsPremiumStorage,
+                UpdatedAt = CURRENT_TIMESTAMP
+            WHERE target.VCPU != EXCLUDED.VCPU
+               OR target.MemoryGB != EXCLUDED.MemoryGB
+               OR target.BaselineIOPS IS DISTINCT FROM EXCLUDED.BaselineIOPS
+               OR target.Architecture IS DISTINCT FROM EXCLUDED.Architecture
+               OR target.IsGPU != EXCLUDED.IsGPU
+               OR target.IsConfidential != EXCLUDED.IsConfidential
+               OR target.HasLocalStorage != EXCLUDED.HasLocalStorage
+               OR target.SupportsPremiumStorage != EXCLUDED.SupportsPremiumStorage;
         """
 
         values = [
@@ -68,7 +68,7 @@ class CatalogProcessor(BaseProcessor):
                 r.get('baseline_iops'),
                 r.get('baseline_throughput_mbps'),
                 r.get('network_performance'),
-                r.get('architecture', 'x86_64'),
+                r.get('architecture', 'x86_64').lower(),
                 bool(r.get('is_gpu', False)),
                 bool(r.get('is_confidential', False)),
                 bool(r.get('has_local_storage', False)),
@@ -84,12 +84,12 @@ class CatalogProcessor(BaseProcessor):
         """Bulk-upsert of pricing records."""
         query = """
             INSERT INTO pricingcatalog AS target(
-                cloud, instance_type, region, os, hourly_price_usd
+                Cloud, InstanceType, Region, Os, HourlyPriceUsd
             ) VALUES %s
-            ON CONFLICT (cloud, instance_type, region, os) DO UPDATE SET
-                hourly_price_usd = EXCLUDED.hourly_price_usd,
-                updated_at = CURRENT_TIMESTAMP
-            WHERE target.hourly_price_usd != EXCLUDED.hourly_price_usd;
+            ON CONFLICT (Cloud, InstanceType, Region, Os) DO UPDATE SET
+                HourlyPriceUsd = EXCLUDED.HourlyPriceUsd,
+                UpdatedAt = CURRENT_TIMESTAMP
+            WHERE target.HourlyPriceUsd != EXCLUDED.HourlyPriceUsd;
         """
 
         values = [
