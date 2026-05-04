@@ -92,7 +92,7 @@ def get_telemetry(db_cursor, resource_id: int, analysis_days: int) -> Dict[str, 
 def get_actual_daily_cost(db_cursor, resource_id: str, analysis_days: int, exchange_rate: float = 1.0) -> float:
     """Get the current instance spend."""
     query = """
-        SELECT COALESCE(AVG(billedcost * (CASE WHEN billingcurrency = 'USD' THEN %(exchange_rate)s ELSE 1.0 END)), 0.0)
+        SELECT COALESCE(SUM(billedcost * (CASE WHEN billingcurrency = 'USD' THEN %(exchange_rate)s ELSE 1.0 END)), 0.0) / %(analysis_days)s
         FROM costs
         WHERE entityid = %(resource_id)s
           AND "chargeperiodstart" >= NOW() - (%(analysis_days)s * INTERVAL '1 day');

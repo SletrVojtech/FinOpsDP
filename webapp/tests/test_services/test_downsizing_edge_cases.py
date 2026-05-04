@@ -86,7 +86,7 @@ def test_evaluate_turn_off(mock_crud):
     
     assert res["status"] == "success"
     assert res["action"] == "downsize_recommended"
-    assert "nečinná" in res["message"]
+    assert "Vypnout" in res["recommendations"][0]["recommended_instance"]
 
 
 def test_evaluate_downsizing_no_cheaper_candidates(mock_crud):

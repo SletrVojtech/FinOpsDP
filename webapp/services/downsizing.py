@@ -168,7 +168,7 @@ def evaluate_downsizing(
     if is_idling:
         recommendations.append({
             "recommended_instance": "Vypnout",
-            "warnings": ["Instance je pravděpodobně nečinná (všechny dostupné metriky ukazují téměř nulové využití)"],
+            "warnings": ["Instance je pravděpodobně nečinná"],
             "financials": {
                 "projected_daily_cost_eur": 0.0,
                 "estimated_monthly_savings_eur": round(actual_daily_cost * 30, 2),
