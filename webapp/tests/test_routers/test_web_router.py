@@ -45,11 +45,11 @@ def test_cluster_cost_detail_json(client, mock_cursor, override_db, mocker):
     mock_cursor.fetchone.return_value = ["MyCluster"]
     
     # Mocking services
-    mocker.patch("routers.web_router.costs_service.calculate_chargeback_forecast", return_value={
+    mocker.patch("routers.chargeback.web.costs_service.calculate_chargeback_forecast", return_value={
         "labels": ["2026-03-01"],
         "actual_daily": [10.0]
     })
-    mocker.patch("routers.web_router.get_daily_namespace_allocation", return_value={"data": "mocked"})
+    mocker.patch("routers.chargeback.web.get_daily_namespace_allocation", return_value={"data": "mocked"})
     
     # Requesting JSON via Accept header
     response = client.get("/ui/clusters/1/costs", headers={"Accept": "application/json"})

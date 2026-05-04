@@ -14,22 +14,32 @@ def test_get_roots(client, mock_cursor, override_db, mocker):
     """Test /api/v1/roots endpoint."""
     # Mocking entities.get_roots
     mock_get_roots = mocker.patch("crud.entities.get_roots")
-    mock_get_roots.return_value = [{"id": 1, "name": "Root"}]
+    mock_get_roots.return_value = [{"id": 1, "name": "Root", "provider": "aws", "has_children": False}]
     
     response = client.get("/api/v1/roots")
     
     assert response.status_code == 200
     assert response.json()["status"] == "success"
-    assert response.json()["data"] == [{"id": 1, "name": "Root"}]
+    assert response.json()["data"] == [{"id": 1, "name": "Root", "provider": "aws", "has_children": False}]
     mock_get_roots.assert_called_once_with(mock_cursor)
 
 def test_get_chargeback_data(client, mock_cursor, override_db, mocker):
     """Test /api/v1/costs/chargeback endpoint."""
     # Mocking cost_service.get_chargeback_dashboard_data
     mock_get_data = mocker.patch("services.cost_service.get_chargeback_dashboard_data")
-    mock_get_data.return_value = {"month": "2026-03", "projected_total": 500.0}
+    mock_get_data.return_value = {
+        "month": "2026-03", 
+        "projected_total": 500.0,
+        "labels": ["2026-03-01"],
+        "actual_daily": [10.0],
+        "actual_cumulative": [10.0],
+        "forecast_cumulative": [10.0],
+        "anomalies": [],
+        "budget": 1000.0,
+        "breakdown_by_category": {"Compute": [10.0]}
+    }
     
-    mocker.patch("routers.api_router.extract_active_tags", return_value={})
+    mocker.patch("routers.chargeback.api.extract_active_tags", return_value={})
     
     response = client.get("/api/v1/costs/chargeback?scope_id=1&target_month=2026-03")
     
@@ -42,7 +52,7 @@ def test_set_budget(client, mock_cursor, override_db, mocker):
     """Test /api/v1/costs/budget endpoint."""
     # Mocking cost.set_budget
     mock_set_budget = mocker.patch("crud.costs.set_budget")
-    mocker.patch("routers.api_router.extract_active_tags", return_value={})
+    mocker.patch("routers.chargeback.api.extract_active_tags", return_value={})
     
     payload = {"amount": 1000.0}
     response = client.post("/api/v1/costs/budget?scope_id=1&target_month=2026-03", json=payload)
@@ -55,10 +65,11 @@ def test_set_budget(client, mock_cursor, override_db, mocker):
 
 def test_api_get_children(client, mock_cursor, override_db, mocker):
     """Test /api/v1/children/{parent_id} endpoint."""
-    mock_get_children = mocker.patch("crud.entities.get_children", return_value=[{"id": 2, "name": "Child"}])
+    mock_get_children = mocker.patch("crud.entities.get_children", return_value=[{"id": 2, "name": "Child", "type": "resource", "has_children": False}])
     response = client.get("/api/v1/children/1")
     assert response.status_code == 200
     assert response.json()["data"][0]["name"] == "Child"
+    assert response.json()["data"][0]["has_children"] == False
 
 def test_api_get_available_metrics(client, mock_cursor, override_db, mocker):
     """Test /api/v1/metrics/{entity_id}/available endpoint."""
@@ -69,7 +80,7 @@ def test_api_get_available_metrics(client, mock_cursor, override_db, mocker):
 
 def test_api_get_metric_data(client, mock_cursor, override_db, mocker):
     """Test /api/v1/metrics/{entity_id}/data endpoint."""
-    mock_data = [{"timestamp": "2024-01-01T00:00:00", "value": 50.0}]
+    mock_data = [{"time": "2024-01-01T00:00:00", "avg": 50.0, "max": 50.0, "min": 50.0, "sum": 50.0, "count": 1}]
     mock_get_data = mocker.patch("crud.metrics.get_metric_data", return_value=mock_data)
     
     response = client.get("/api/v1/metrics/1/data?metric_name=cpu&time_range=24 hours&granularity=1 hour")
@@ -110,7 +121,7 @@ def test_api_get_downsizing_recommendation(client, mock_cursor, override_db, moc
 
 def test_api_get_anomalies(client, mock_cursor, override_db, mocker):
     """Test GET /api/v1/anomalies endpoint."""
-    mock_data = [{"id": 1, "type": "cost", "date": "2024-04-01"}]
+    mock_data = [{"id": 1, "scope_id": 1, "scope_name": "Scope", "tags": {}, "date": "2024-04-01", "type": "cost", "actual": 10.0, "predicted": 5.0, "threshold": 8.0, "delta": 2.0, "is_seen": False, "detected_at": "2024-04-01T00:00:00"}]
     mock_get = mocker.patch("crud.costs.get_dashboard_anomalies", return_value=mock_data)
     
     response = client.get("/api/v1/anomalies?only_unseen=true")
