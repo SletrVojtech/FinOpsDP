@@ -67,7 +67,7 @@ def test_evaluate_downsizing_no_catalog_price(mock_crud):
     assert "warning" in res
     assert "financials" not in res
 
-def test_evaluate_downsizing_no_cheaper_candidates(mock_crud):
+def test_evaluate_turn_off(mock_crud):
     """Test behavior when all candidates are more expensive."""
     cursor = MagicMock()
     mock_crud["get_instance_metadata"].return_value = {
@@ -75,6 +75,28 @@ def test_evaluate_downsizing_no_cheaper_candidates(mock_crud):
         "architecture": "x86_64", "is_gpu": False, "is_confidential": False, "has_local_storage": False, "supports_premium_storage": True
     }
     mock_crud["get_telemetry"].return_value = {"cpu_p95": 1.0, "ram_max": 1.0}
+    
+    # candidate exists but is more expensive
+    mock_crud["get_suitable_candidates"].return_value = [
+        {"instance_type": "expensive.gen", "hourly_price_usd": 1.0}
+    ]
+    mock_crud["get_catalog_hourly_price"].return_value = 0.20 # Current is 0.20
+    
+    res = evaluate_downsizing(cursor, 1)
+    
+    assert res["status"] == "success"
+    assert res["action"] == "downsize_recommended"
+    assert "nečinná" in res["message"]
+
+
+def test_evaluate_downsizing_no_cheaper_candidates(mock_crud):
+    """Test behavior when all candidates are more expensive."""
+    cursor = MagicMock()
+    mock_crud["get_instance_metadata"].return_value = {
+        "vcpu": 4, "memory_gb": 16, "provider": "aws", "region": "us-east-1", "os": "linux", "instance_type": "m5.xlarge",
+        "architecture": "x86_64", "is_gpu": False, "is_confidential": False, "has_local_storage": False, "supports_premium_storage": True
+    }
+    mock_crud["get_telemetry"].return_value = {"cpu_p95": 6.0, "ram_max": 1.0}
     
     # candidate exists but is more expensive
     mock_crud["get_suitable_candidates"].return_value = [

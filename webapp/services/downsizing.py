@@ -7,7 +7,7 @@ def evaluate_downsizing(
     db_cursor,
     resource_id: int,
     analysis_days: int = 30,
-    target_cpu_util: float = 60.0,
+    target_cpu_util: float = 85.0,
     target_ram_util: float = 80.0,
     excluded_filters: List[str] = None,
 ) -> Dict[str, Any]:
@@ -97,7 +97,23 @@ def evaluate_downsizing(
         exchange_rate=exch_rate,
     )
 
-    if not candidates:
+    idle_checks = []
+    if tel.get("cpu_p95") is not None:
+        idle_checks.append(tel["cpu_p95"] < 5.0)
+    if tel.get("ram_max") is not None:
+        idle_checks.append(tel["ram_max"] < 5.0)
+    if tel.get("disk_read_max") is not None:
+        idle_checks.append(tel["disk_read_max"] < 50.0)
+    if tel.get("disk_write_max") is not None:
+        idle_checks.append(tel["disk_write_max"] < 50.0)
+    if tel.get("net_in_max") is not None:
+        idle_checks.append((tel["net_in_max"] / 1_000_000.0) < 5.0)
+    if tel.get("net_out_max") is not None:
+        idle_checks.append((tel["net_out_max"] / 1_000_000.0) < 5.0)
+
+    is_idling = len(idle_checks) > 0 and all(idle_checks)
+
+    if not candidates and not is_idling:
         return {
             "status": "success",
             "action": "none",
@@ -118,6 +134,12 @@ def evaluate_downsizing(
     # No catalog price — return best candidate without financials
     if not current_catalog_price or current_catalog_price <= 0:
         recommendations = []
+        if is_idling:
+            recommendations.append({
+                "recommended_instance": "Vypnout",
+                "warnings": ["Instance je pravděpodobně nečinná."]
+            })
+            
         seen_warnings = set()
         for cand in candidates:
             # Sort warnings to ensure consistent signature
@@ -142,6 +164,18 @@ def evaluate_downsizing(
 
     # Pick all cheapest candidates up until an exact match is found
     recommendations = []
+    
+    if is_idling:
+        recommendations.append({
+            "recommended_instance": "Vypnout",
+            "warnings": ["Instance je pravděpodobně nečinná (všechny dostupné metriky ukazují téměř nulové využití)"],
+            "financials": {
+                "projected_daily_cost_eur": 0.0,
+                "estimated_monthly_savings_eur": round(actual_daily_cost * 30, 2),
+                "savings_percentage": 100.0,
+            }
+        })
+        
     seen_warnings = set()
 
     for cand in candidates:
