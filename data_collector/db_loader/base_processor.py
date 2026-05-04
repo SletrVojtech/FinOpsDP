@@ -42,7 +42,7 @@ class BaseProcessor(ABC):
             VALUES (%s, %s, %s, %s, %s)
             ON CONFLICT (ExternalId) DO UPDATE 
             SET ParentId = CASE WHEN EXCLUDED.ParentId = 0 THEN Entities.ParentId ELSE EXCLUDED.ParentId END, 
-                ResourceType = EXCLUDED.ResourceType
+                ResourceType = EXCLUDED.ResourceType, UpdatedAt = NOW()
             RETURNING Id;
         """
         if not res_name or str(res_name).lower() == "none":

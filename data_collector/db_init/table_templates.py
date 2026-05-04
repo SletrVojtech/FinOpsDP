@@ -22,7 +22,8 @@ SCHEMA_DEFINITIONS = {
         ProviderName VARCHAR(20),          -- AWS, Azure, K8s
         MetaHash VARCHAR(32),
         Tags JSONB,
-        Extras JSONB
+        Extras JSONB,
+        UpdatedAt TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
     );
     """,
     "costs": """

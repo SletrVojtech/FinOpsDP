@@ -95,7 +95,8 @@ class CostsProcessor(BaseProcessor):
             ON CONFLICT (ExternalId) DO UPDATE 
             SET 
                 Tags = COALESCE(Entities.Tags, '{}'::jsonb) || COALESCE(EXCLUDED.Tags, '{}'::jsonb),
-                RegionId = EXCLUDED.RegionId
+                RegionId = EXCLUDED.RegionId, 
+                UpdatedAt = NOW()
             RETURNING Id, ExternalId
         """
 

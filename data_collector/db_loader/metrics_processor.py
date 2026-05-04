@@ -77,11 +77,12 @@ class MetricsProcessor(BaseProcessor):
             ON CONFLICT (ExternalId) DO UPDATE 
             SET MetaHash = EXCLUDED.MetaHash,
                 Tags = EXCLUDED.Tags,
-                Extras = EXCLUDED.Extras
+                Extras = EXCLUDED.Extras,
+                UpdatedAt = NOW()
             WHERE entities.MetaHash != EXCLUDED.MetaHash
             RETURNING Id;
         """
-        if not res_name or res_name == "None":
+        if not res_name or str(res_name).lower() == "none":
             res_name = resource_id
         self.cursor.execute(query, (resource_id.lower(), res_name.lower(),res_type.lower(), parent_id, meta_hash, tags, extras, provider))
         result = self.cursor.fetchone()
