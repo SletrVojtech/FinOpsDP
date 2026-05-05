@@ -2,7 +2,7 @@ import calendar
 from datetime import date, timedelta
 from crud import allocations
 import json
-from datetime import date
+
 
 
 def _build_scope_cte(scope_id: int, tags_filter: dict):
@@ -368,12 +368,11 @@ def get_forecast_quality(cursor, target_month: date):
         scope_name = parts[1]
         tags = forecasts[0]["tags"]
         
-        # The latest forecast represents the 'actual' status at the end of the month
+        # The latest forecast represents the actual projected status at the end of the month
         latest_forecast = forecasts[-1]
         latest_amount = latest_forecast["projected_amount"]
-        latest_daily = latest_forecast["daily_forecasts"]
         
-        # We aggregate all forecasts to represent the 'prediction'
+        # Aggregate all forecasts to represent the prediction
         total_amount = sum(f["projected_amount"] for f in forecasts)
         avg_amount = total_amount / len(forecasts) if forecasts else 0.0
         
@@ -388,6 +387,15 @@ def get_forecast_quality(cursor, target_month: date):
             accuracy = 100.0 - min(100.0, abs(variance) / avg_amount * 100.0)
         else:
             accuracy = 100.0 if latest_amount == 0 else 0.0
+
+        start_date = target_month.replace(day=1)
+        _, last_day = calendar.monthrange(start_date.year, start_date.month)
+        end_date = start_date + timedelta(days=last_day)
+        
+        # Fetch the historical actuals for plotting
+        daily_actuals_data = get_daily_costs(cursor, scope_id=scope_id, tags_filter=tags, 
+                                             target_date=target_month, start_date=start_date, end_date=end_date)
+        daily_actuals_dict = {d["date"]: d["cost"] for d in daily_actuals_data}
             
         results.append({
             "scope_id": scope_id,
@@ -399,7 +407,7 @@ def get_forecast_quality(cursor, target_month: date):
             "variance": variance,
             "accuracy": accuracy,
             "daily_forecasts": avg_daily,
-            "daily_actuals": latest_daily
+            "daily_actuals": daily_actuals_dict
         })
         
     return results

@@ -3,9 +3,15 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-from routers import api_router, web_router
+from routers.core import api as core_api, web as core_web
+from routers.chargeback import api as chargeback_api, web as chargeback_web
+from routers.metrics import api as metrics_api, web as metrics_web
+from routers.downsizing import api as downsizing_api, web as downsizing_web
+from routers.krr import api as krr_api, web as krr_web
 from dotenv import load_dotenv
 from pathlib import Path
+
+#from routers import api_router, web_router
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -54,5 +60,16 @@ async def global_exception_handler(request: Request, exc: Exception):
 app.mount("/static", StaticFiles(directory=str(BASE_DIR /"static")), name="static")
 
 # adding the sub-routers
-app.include_router(api_router.router)
-app.include_router(web_router.router)
+app.include_router(core_api.router)
+app.include_router(core_web.router)
+app.include_router(chargeback_api.router)
+app.include_router(chargeback_web.router)
+app.include_router(metrics_api.router)
+app.include_router(metrics_web.router)
+app.include_router(downsizing_api.router)
+app.include_router(downsizing_web.router)
+app.include_router(krr_api.router)
+app.include_router(krr_web.router)
+
+#app.include_router(api_router.router)
+#app.include_router(web_router.router)
