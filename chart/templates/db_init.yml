@@ -1,0 +1,47 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: db-init
+  namespace: {{ .Release.Namespace }}
+  labels:
+    department: monitor
+    app: db-init
+spec:
+  backoffLimit: 3 
+  template:
+    metadata:
+      labels:
+        department: monitor
+        app: db-init
+    spec:
+      restartPolicy: OnFailure
+      
+      # depends_on: timescaledb
+      initContainers:
+      - name: wait-for-db
+        image: busybox:1.36
+        command: ['sh', '-c', 'until nc -z timescaledb 5432; do echo "Waiting for TimescaleDB..."; sleep 2; done; echo "TimescaleDB is ready!"']
+        resources:
+          requests:
+            cpu: "10m"
+            memory: "32Mi"
+          limits:
+            cpu: "50m"
+            memory: "64Mi"
+
+      containers:
+      - name: db-init
+        image: {{ .Values.image.repository }}/finops-data-collector:{{ .Values.image.tag }}
+        command: ["python3", "db_init/db_init.py"]
+        envFrom:
+        - secretRef:
+            name: app-env-vars
+        - secretRef:
+            name: rmq-env-vars
+        resources:
+          requests:
+            cpu: "50m"
+            memory: "64Mi"
+          limits:
+            cpu: "100m"
+            memory: "128Mi"

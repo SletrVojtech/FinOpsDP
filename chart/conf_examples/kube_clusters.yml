@@ -1,0 +1,11 @@
+clusters:
+  - provider: "azure"
+    account_id: "000000000"
+    cluster_name: "aks"
+    cluster_resource_id: "/subscriptions/00000000000/resourceGroups/RG/providers/Microsoft.ContainerService/managedClusters/aks"
+    labels: ["department", "cost_center","team"]
+    context: "aks"
+    prometheus: # defaults
+      namespace: "monitoring"
+      service_name: "prometheus-kube-prometheus-prometheus"
+      port: "9090"

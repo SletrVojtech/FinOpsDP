@@ -1,0 +1,94 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: timescaledb
+  namespace: {{ .Release.Namespace }}
+  labels:
+    department: monitor
+spec:
+  selector:
+    app: timescaledb
+  ports:
+    - protocol: TCP
+      port: 5432
+      targetPort: 5432
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: timescaledb
+  namespace: {{ .Release.Namespace }}
+  labels:
+    department: monitor
+spec:
+  serviceName: "timescaledb"
+  replicas: 1
+  selector:
+    matchLabels:
+      app: timescaledb
+  template:
+    metadata:
+      labels:
+        app: timescaledb
+        department: monitor
+    spec:
+      containers:
+      - name: timescaledb
+        image: timescale/timescaledb:2.25.2-pg18
+        ports:
+        - containerPort: 5432
+        
+        resources:
+          requests:
+            cpu: "250m"
+            memory: "1Gi"
+          limits:
+            cpu: "500m"
+            memory: "4Gi"
+            
+        env:
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              name: app-env-vars
+              key: DB_USER
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: app-env-vars
+              key: DB_PASSWORD
+        - name: POSTGRES_DB
+          valueFrom:
+            secretKeyRef:
+              name: app-env-vars
+              key: DB_NAME
+        - name: PGDATA
+          value: /var/lib/postgresql/data/pgdata
+          
+        readinessProbe:
+          exec:
+            command:
+            - sh
+            - -c
+            - "pg_isready -U $POSTGRES_USER -d $POSTGRES_DB"
+          initialDelaySeconds: 5
+          periodSeconds: 2
+          timeoutSeconds: 5
+          failureThreshold: 10
+          
+        volumeMounts:
+        - name: timescaledb-data
+          mountPath: /var/lib/postgresql/data
+
+  volumeClaimTemplates:
+  - metadata:
+      name: timescaledb-data
+      labels:
+        department: monitor
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      resources:
+        requests:
+          storage: 40Gi

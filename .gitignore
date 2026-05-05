@@ -5,3 +5,7 @@
 *.pyc
 .scripts
 */tmp
+
+secrets.yml
+chart/conf/*
+manifests/

@@ -1,0 +1,4 @@
+accounts:
+- account_id: '0000000'
+  name: AWSMain
+  role: arn:aws:iam::00000:role/Reader

@@ -1,0 +1,17 @@
+schedules:
+  metrics:
+    interval: 2
+    unit: hours
+    
+  costs:
+    time: "3:00"
+    
+  kube:
+     time: "1:00"
+     kwargs: # default
+       hours: 24   
+    
+  catalogs:
+    unit: months
+    day_of_month: 2
+    at: "2:00"

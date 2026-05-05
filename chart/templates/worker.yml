@@ -1,0 +1,45 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: forecast-worker
+  namespace: {{ .Release.Namespace }}
+  labels:
+    department: monitor
+    app: forecast-worker
+spec:
+  schedule: "0 4 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      
+      template:
+        metadata:
+          labels:
+            department: monitor
+            app: forecast-worker
+        spec:
+          containers:
+          - name: forecast-worker
+            image: {{ .Values.image.repository }}/finops-webapp:{{ .Values.image.tag }}
+            
+            command: ["python3", "run_worker.py", "--job", "fbad"]
+            
+            resources:
+              requests:
+                cpu: "500m"
+                memory: "1Gi"
+              limits:
+                cpu: "2"
+                memory: "4Gi"
+            
+            envFrom:
+            - secretRef:
+                name: app-env-vars
+            - secretRef:
+                name: web-env-vars
+          
+          restartPolicy: Never

@@ -1,0 +1,8 @@
+aws:
+  - account_id: '0000'
+    export_name: "DailyExport"
+azure:
+  - billing_id: "0000-0000-000-0000-000"
+    export_name: "CostExport"
+  - subscription_id: "0000-0000-000-0000-000"
+    export_name: "CostExportFocus"

@@ -1,0 +1,34 @@
+image:
+  repository: finopsdp.azurecr.io
+  tag: latest
+
+
+db:
+  user: postgres
+  password: ""
+  name: finops_db
+
+rabbitmq:
+  user: admin
+  password: ""
+  host: rabbitmq
+  port: 5672
+
+azure:
+  subscription_id: ""
+  client_id: ""
+  client_secret: ""
+  tenant_id: ""
+
+aws:
+  access_key_id: ""
+  secret_access_key: ""
+
+kube:
+  kubeconfigfile: ""
+
+web:
+  metrics: True
+  costs: True
+
+  

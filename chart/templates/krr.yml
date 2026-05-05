@@ -1,0 +1,37 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: collector-krr
+  namespace: {{ .Release.Namespace }}
+spec:
+  schedule: "0 4 * * *"
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+          - name: worker
+            image: {{ .Values.image.repository }}/finops-krr-collector:{{ .Values.image.tag }}
+            envFrom:
+            - secretRef:
+                name: rmq-env-vars
+            env:
+            - name: KUBECONFIG_PATH
+              value: "/root/.kube/config"
+            volumeMounts:
+            - name: kubeconfig-volume
+              mountPath: /root/.kube/config
+              subPath: config
+              readOnly: true
+            - name: conf-volume
+              mountPath: /finops/.conf
+              readOnly: true
+          volumes:
+          - name: kubeconfig-volume
+            secret:
+              secretName: external-kubeconfig
+          - name: conf-volume
+            secret:
+              secretName: conf-files-worker1

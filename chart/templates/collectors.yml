@@ -1,0 +1,148 @@
+# Metrics collector every 2 hours
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: collector-metrics
+  namespace: {{ .Release.Namespace }}
+spec:
+  schedule: "0 */2 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+          - name: worker
+            image: {{ .Values.image.repository }}/finops-data-collector:{{ .Values.image.tag }}
+            command: ["python3", "run_policies.py", "metrics"]
+            envFrom:
+            - secretRef:
+                name: rmq-env-vars
+            - secretRef:
+                name: azure-personal-env-vars
+            - secretRef:
+                name: aws-env-vars
+            volumeMounts:
+            - name: conf-volume
+              mountPath: /app/.conf
+              readOnly: true
+          volumes:
+          - name: conf-volume
+            secret:
+              secretName: conf-files-worker1
+
+---
+# kube collector every day at 1 am
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: collector-kube
+  namespace: {{ .Release.Namespace }}
+spec:
+  schedule: "0 1 * * *"
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+          - name: worker
+            image: {{ .Values.image.repository }}/finops-data-collector:{{ .Values.image.tag }}
+            command: ["python3", "run_policies.py", "kube"]
+            env:
+            - name: KUBECONFIG
+              value: "/root/.kube/config"
+            envFrom:
+            - secretRef:
+                name: rmq-env-vars
+            volumeMounts:
+            - name: kubeconfig-volume
+              mountPath: /root/.kube/config
+              subPath: config
+            - name: conf-volume
+              mountPath: /app/.conf
+              readOnly: true
+          volumes:
+          - name: kubeconfig-volume
+            secret:
+              secretName: external-kubeconfig
+          - name: conf-volume
+            secret:
+              secretName: conf-files-worker1
+
+---
+# costs collector every day at 3 am
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: collector-costs
+  namespace: {{ .Release.Namespace }}
+spec:
+  schedule: "0 3 * * *"
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+          - name: worker
+            image: {{ .Values.image.repository }}/finops-data-collector:{{ .Values.image.tag }}
+            command: ["python3", "run_policies.py", "costs"]
+            envFrom:
+            - secretRef:
+                name: rmq-env-vars
+            - secretRef:
+                name: azure-personal-env-vars
+            - secretRef:
+                name: aws-env-vars
+            volumeMounts:
+            - name: conf-volume
+              mountPath: /app/.conf
+              readOnly: true
+          volumes:
+          - name: conf-volume
+            secret:
+              secretName: conf-files-worker1
+
+---
+# Catalogs each month at 1 am
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: collector-catalogs
+  namespace: {{ .Release.Namespace }}
+spec:
+  schedule: "0 1 1 * *"
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+          - name: worker
+            image: {{ .Values.image.repository }}/finops-data-collector:{{ .Values.image.tag }}
+            command: ["python3", "run_policies.py", "catalogs"]
+            envFrom:
+            - secretRef:
+                name: aws-env-vars
+            - secretRef:
+                name: rmq-env-vars
+            - secretRef:
+                name: azure-personal-env-vars
+            volumeMounts:
+            - name: conf-volume
+              mountPath: /app/.conf
+              readOnly: true
+          volumes:
+          - name: conf-volume
+            secret:
+              secretName: conf-files-worker1
