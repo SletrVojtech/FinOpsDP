@@ -102,10 +102,11 @@ def get_scoped_top_tags(cursor, parent_id=None, limit=15):
     cursor.execute(f"""
         WITH RECURSIVE SubTree AS (
             SELECT Id, Tags FROM Entities 
-            WHERE Id = %s AND UpdatedAt >= NOW() - INTERVAL '7 days'
+            WHERE Id = %s
             UNION ALL
             SELECT e.Id, e.Tags FROM Entities e
             JOIN SubTree s ON e.ParentId = s.Id
+            WHERE e.UpdatedAt >= NOW() - INTERVAL '7 days'
         ),
         Stats AS (
             SELECT COUNT(*) as total_count FROM SubTree
@@ -125,7 +126,7 @@ def get_scoped_items(cursor, parent_id=None):
     cursor.execute("""
         SELECT Id, ResourceName, ResourceType as Type,
                 EXISTS(SELECT 1 FROM Entities child WHERE child.ParentId = e.Id) as has_children
-        FROM Entities e WHERE ParentId = %s AND UpdatedAt >= NOW() - INTERVAL '7 days' ORDER BY ResourceType, ResourceName;
+        FROM Entities e WHERE ParentId = %s AND (UpdatedAt >= NOW() - INTERVAL '7 days' OR Id = 0) ORDER BY ResourceType, ResourceName;
     """, (parent_id,))
     return [{"id": r[0], "name": r[1], "type": r[2], "has_children": r[3]} for r in cursor.fetchall()]
 
@@ -140,11 +141,12 @@ def get_dynamic_items(cursor, scope_id: int = None, tags_filter: dict = None):
     base_sql = """
         WITH RECURSIVE SubTree AS (
             SELECT Id, ParentId, ResourceName, ResourceType, Tags, ARRAY[Id] as path
-            FROM Entities WHERE Id = %s AND  UpdatedAt >= NOW() - INTERVAL '7 days'
+            FROM Entities WHERE Id = %s
             UNION ALL
             SELECT e.Id, e.ParentId, e.ResourceName, e.ResourceType, e.Tags, s.path || e.Id
             FROM Entities e
             JOIN SubTree s ON e.ParentId = s.Id
+            WHERE e.UpdatedAt >= NOW() - INTERVAL '7 days'
         ),
         Paths AS (
             SELECT path
@@ -212,10 +214,11 @@ def get_scoped_tag_values(cursor, parent_id: int, tag_key: str):
 
     cursor.execute("""
         WITH RECURSIVE SubTree AS (
-            SELECT Id, Tags FROM Entities WHERE Id = %s ANDUpdatedAt >= NOW() - INTERVAL '7 days'
+            SELECT Id, Tags FROM Entities WHERE Id = %s
             UNION ALL
             SELECT e.Id, e.Tags FROM Entities e
             JOIN SubTree s ON e.ParentId = s.Id
+            WHERE e.UpdatedAt >= NOW() - INTERVAL '7 days'
         )
         SELECT Tags->>%s as tag_value, COUNT(*) as freq
         FROM SubTree

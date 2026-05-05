@@ -210,7 +210,7 @@ async function renderAllCharts() {
                 }).join('');
 
                 const telemetryText = data.telemetry_used 
-                    ? `(Vypočteno na základě ${analysisDays} dní. Max CPU P95: ${data.telemetry_used.cpu_p95}%)`
+                    ? `(Vypočteno na základě ${analysisDays} dní.)`
                     : '';
 
                 contentDiv.innerHTML = `

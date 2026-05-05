@@ -24,18 +24,20 @@ def tags_match(current_tags: dict, rule_tags: dict) -> bool:
 def _make_anomaly_entry(date_str: str, daily_cost: float, thresh_data) -> dict:
     """Normalises anomaly threshold data into a unified anomaly object."""
     if isinstance(thresh_data, dict):          # from CostAnomalies DB record
-        is_anom = thresh_data["actual"] > thresh_data["threshold"] and thresh_data["actual"] > 10.0
+        is_anom = thresh_data["actual"] > thresh_data["threshold"] and thresh_data["actual"] > 4.0
         return {"date": date_str, "is_anomaly": is_anom,
                 "actual": round(thresh_data["actual"], 2),
                 "threshold": round(thresh_data["threshold"], 2),
-                "delta": round(thresh_data["delta"], 2)}
+                "delta": round(thresh_data["delta"], 2),
+                "type": "spike"}
     elif thresh_data is not None:              # scalar upper-bound from AutoETS fitted values
         thresh_f = float(thresh_data)
-        is_anom = daily_cost > thresh_f and daily_cost > 10.0
+        is_anom = daily_cost > thresh_f and daily_cost > 4.0
         return {"date": date_str, "is_anomaly": is_anom,
                 "actual": round(daily_cost, 2),
                 "threshold": round(thresh_f, 2),
-                "delta": round(max(0.0, daily_cost - thresh_f), 2)}
+                "delta": round(max(0.0, daily_cost - thresh_f), 2),
+                "type": "spike"}
     return {"date": date_str, "is_anomaly": False,
             "actual": round(daily_cost, 2), "threshold": None, "delta": 0.0}
 
@@ -297,7 +299,7 @@ def _get_shared_namespace_allocations(cursor, active_tags: dict, start_date: dat
 
 def _prepare_dates_and_cutoff(cursor, target_month: str = None):
     """Prepare date interval and actual data cutoff for the given month"""
-    SAFE_DAYS_TO_SUBTRACT = 3
+    SAFE_DAYS_TO_SUBTRACT = 1
     if target_month:
         year, month = map(int, target_month.split('-'))
         base_date = date(year, month, 1)
@@ -454,7 +456,7 @@ def get_chargeback_dashboard_data(cursor, scope_id: int, active_tags: dict,
 def calculate_chargeback_forecast(cursor, scope_id: int, active_tags: dict, 
                                   target_month: str = None, group_by_tag: str = None) -> dict:
     """
-    Calculates monthly spend and creates an ML forecast with StatsForecast.
+    Calculates monthly spend and creates a forecast with StatsForecast.
     """
     base_date, start_date, end_date, num_days, cutoff_date_obj, cutoff_day = _prepare_dates_and_cutoff(cursor, target_month)
 
@@ -541,7 +543,7 @@ def calculate_chargeback_forecast(cursor, scope_id: int, active_tags: dict,
     # Create dict mapping for upper bound of prediction interval
     anomaly_thresholds = {}
     if not fitted_df.empty:
-        hi_cols = [c for c in fitted_df.columns if c.endswith('-hi-95')]
+        hi_cols = [c for c in fitted_df.columns if c.lower().endswith('-hi-95')]
         if hi_cols:
             hi_col = hi_cols[0]
             for _, row in fitted_df.iterrows():

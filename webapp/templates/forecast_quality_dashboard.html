@@ -1,6 +1,6 @@
 <div class="mb-4">
     <h2>Vyhodnocení kvality predikcí</h2>
-    <p class="text-muted">Porovnání posledních predikcí před začátkem měsíce se skutečnými náklady po jeho skončení
+    <p class="text-muted">Porovnání predikcí během měsíce se skutečnými náklady po jeho skončení
         (nebo do dnešního dne).</p>
 </div>
 
@@ -21,7 +21,7 @@
                     <th style="text-align: right;">Skutečně</th>
                     <th style="text-align: right;">Odchylka</th>
                     <th style="text-align: right;">Přesnost</th>
-                    <th style="text-align: center;">Akce</th>
+                    <!-- <th style="text-align: center;">Akce</th> -->
                 </tr>
             </thead>
             <tbody id="quality-table-body">
@@ -81,9 +81,9 @@
                 <td style="text-align: right; font-weight: 500;">${fmt(row.actual_amount)} €</td>
                 <td style="text-align: right;">${varBadge}</td>
                 <td style="text-align: right;">${accuracyBadge}</td>
-                <td style="text-align: center;">
+                <!-- <td style="text-align: center;">
                     <button class="btn btn-outline text-xs" onclick="showChart(${index})">Graf denních vektorů</button>
-                </td>
+                </td> -->
             </tr>
         `;
     }
@@ -141,11 +141,27 @@
         let runForecast = 0;
         let runActual = 0;
 
-        allDates.forEach(date => {
-            runActual += (dailyActuals[date] || 0);
-            cumulativeActual.push(runActual);
+        const todayStr = new Date().toISOString().split('T')[0];
 
-            runForecast += (dailyForecasts[date] || 0);
+        allDates.forEach(date => {
+            // For actuals, we only accumulate if we have data and it's not in the future
+            if (date <= todayStr && dailyActuals[date] !== undefined && dailyActuals[date] > 0) {
+                runActual += dailyActuals[date];
+                cumulativeActual.push(runActual);
+            } else if (date <= todayStr) {
+                 cumulativeActual.push(runActual);
+            } else {
+                 cumulativeActual.push(null);
+            }
+
+            // For forecast, compute prediction using the average forecast vector whenever available.
+            // If there was no forecast for a past day, it must be because no forecasts existed yet, so we use actuals.
+            if (dailyForecasts[date] !== undefined) {
+                runForecast += dailyForecasts[date];
+            } else if (dailyActuals[date] !== undefined) {
+                runForecast += dailyActuals[date];
+            }
+            
             cumulativeForecast.push(runForecast);
         });
 

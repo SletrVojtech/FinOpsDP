@@ -18,7 +18,7 @@ def get_instance_metadata(db_cursor, resource_id: int) -> Optional[Dict[str, Any
             h.supportspremiumstorage
         FROM Entities e
         LEFT JOIN hardwarecatalog h
-          ON e.extras->>'instance_type' = h.instance_type
+          ON e.extras->>'instancetype' = h.instancetype
         WHERE e.Id = %(resource_id)s
         LIMIT 1;
     """

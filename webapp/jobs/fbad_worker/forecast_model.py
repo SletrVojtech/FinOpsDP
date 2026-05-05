@@ -27,7 +27,7 @@ class ForecastModel:
         df = pd.DataFrame(df_data)
         
         if df.empty or len(df) < self.min_data_points:
-            logger.warning(f"Not enough data for AutoARIMA (found {len(df)}, required {self.min_data_points}). Skipping ML calculation.")
+            logger.warning(f"Not enough data for AutoARIMA (found {len(df)}, required {self.min_data_points}). Skipping calculation.")
             return {
                 "future_forecasts": {},
                 "anomalies": [],
