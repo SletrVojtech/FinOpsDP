@@ -99,12 +99,11 @@ class CostDataLoader:
                 for i in range(days_span):
                     current_date = start_dt + timedelta(days=i)
                     
-                    if current_date >= cutoff_dt:
-                        new_row = dict(row)
-                        new_row['charge_period_start'] = current_date
-                        new_row['charge_period_end'] = current_date + timedelta(days=1)
-                        new_row['billed_cost'] = daily_cost
-                        records.append(FocusCostAdapter(new_row).to_payload())
+                    new_row = dict(row)
+                    new_row['charge_period_start'] = current_date
+                    new_row['charge_period_end'] = current_date + timedelta(days=1)
+                    new_row['billed_cost'] = daily_cost
+                    records.append(FocusCostAdapter(new_row).to_payload())
         return records
 
     def _publish_batches(self, records: list[dict], batch_size: int):

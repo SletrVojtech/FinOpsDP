@@ -74,13 +74,12 @@ def test_distribute_multiday_charges():
 
     # Assert
     # 30 / 3 days = 10.0 daily cost
-    # Since March 1st is < cutoff_date, we only retain the payloads for March 2nd & 3rd.
-    assert len(records) == 2
+    assert len(records) == 3
     
     payload_1 = records[0]
-    assert payload_1.charge_period_start == datetime(2026, 3, 2, 0, 0, 0) 
+    assert payload_1.charge_period_start == datetime(2026, 3, 1, 0, 0, 0) 
     assert payload_1.billed_cost == 10.0
     
     payload_2 = records[1]
-    assert payload_2.charge_period_start == datetime(2026, 3, 3, 0, 0, 0) 
+    assert payload_2.charge_period_start == datetime(2026, 3, 2, 0, 0, 0) 
     assert payload_2.billed_cost == 10.0
