@@ -163,13 +163,24 @@ class Azure_Export_Worker:
         history_resp.raise_for_status()
         runs = history_resp.json().get('value', [])
 
-        latest_run = next((r for r in runs if r.get('properties', {}).get('status') == 'Completed'), None)
+        completed_runs = [r.get('properties', {}) for r in runs if r.get('properties', {}).get('status') == 'Completed']
         
-        if not latest_run:
+        if not completed_runs:
             self.log.warning(f"[Azure-{self.short_id}] No completed runs found.")
-            return None
+            return []
 
-        return latest_run['properties']
+        latest_run = completed_runs[0]
+        latest_date = latest_run.get('processingEndTime', latest_run.get('submittedTime', ''))[:10]
+        
+        target_runs = [latest_run]
+        
+        if len(completed_runs) > 1:
+            next_run = completed_runs[1]
+            next_date = next_run.get('processingEndTime', next_run.get('submittedTime', ''))[:10]
+            if latest_date and latest_date == next_date:
+                target_runs.append(next_run)
+
+        return target_runs
     
     def _get_manifest(self, props):
         # Extracting location of the Manifest file from latest export run.
@@ -224,7 +235,7 @@ class Azure_Export_Worker:
         return downloaded_files
     
     def run(self):
-        self.log.info(f"[Azure-{self.short_id}] Downloading exports for {self.scope}.")
+        self.log.info(f"[Azure-{self.short_id}] Downloading exports.")
         try:
             if not self.scope:
                 return [], False
@@ -232,19 +243,22 @@ class Azure_Export_Worker:
             actual_export_name = self._get_export_name()
             if not actual_export_name:
                 return [], True
-            props = self._get_history(actual_export_name)
-            if not props:
+            target_runs = self._get_history(actual_export_name)
+            if not target_runs:
                 return [], True
-            blobs = self._get_manifest(props)
             self.target_folder = os.path.join(self.output_dir, f"azure_{self.short_id}_{actual_export_name}")
             os.makedirs(self.target_folder, exist_ok=True)
-            if not blobs:
-                return [], True
-            downloaded_files = self.download(blobs)
+            
+            all_downloaded_files = []
+            for props in target_runs:
+                blobs = self._get_manifest(props)
+                if not blobs:
+                    continue
+                downloaded_files = self.download(blobs)
+                all_downloaded_files.extend(downloaded_files)
 
-
-            self.log.info(f"[Azure-{self.short_id}] Successfully downloaded {len(downloaded_files)} files.")
-            return downloaded_files, True
+            self.log.info(f"[Azure-{self.short_id}] Successfully downloaded {len(all_downloaded_files)} files.")
+            return all_downloaded_files, True
 
         except requests.exceptions.HTTPError as he:
             self.log.error(f"[Azure-{self.short_id}] API Management error: {he.response.text}")
