@@ -1,16 +1,27 @@
+"""
+Kubernetes Collection Orchestrator.
+
+This script manages the execution of the Kubernetes metrics collector across
+configured clusters and publishes the results to RabbitMQ.
+"""
+
 import logging
 import os
 from kube_collector.kube_collector import KubePrometheusCollector
 from rabbitmq.connector import RabbitMQClient
+from registry import register_collector
 
 log = logging.getLogger("kube_runner")
 
-from registry import register_collector
 
-@register_collector("kube", help_text="Download from Kubernetes and send to RMQ", cli_args=[("--hours", {"type": int, "default": 240, "help": "Time window to download data from"})])
+@register_collector("kube", help_text="Download from Kubernetes and send to RMQ", cli_args=[("--hours", {"type": int, "default": 24, "help": "Time window to download data from"})])
 def run_kube_collection(config_path: str = ".conf/kube_clusters.yml", hours: int = 24):
     """
     Run Prometheus collector across kubernetes clusters.
+
+    Args:
+        config_path (str, optional): Path to the kube_clusters.yml config. Defaults to ".conf/kube_clusters.yml".
+        hours (int, optional): Number of hours of metrics to collect. Defaults to 24.
     """
     if not os.path.exists(config_path):
         log.error(f"Config file {config_path} not found.")
