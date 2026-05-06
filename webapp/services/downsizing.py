@@ -1,4 +1,13 @@
-from typing import List, Dict, Any
+"""
+VM Downsizing Recommendation Service.
+
+This module evaluates whether a virtual machine instance can be safely
+downsized. It queries hardware metadata, live telemetry, and a pricing
+catalogue to identify cheaper instance types that still satisfy the
+observed CPU, memory, disk, and network requirements.
+"""
+
+from typing import List, Dict, Any, Optional
 from crud import downsizing as crud_downsizing
 from services import currency
 
@@ -9,18 +18,43 @@ def evaluate_downsizing(
     analysis_days: int = 30,
     target_cpu_util: float = 85.0,
     target_ram_util: float = 80.0,
-    excluded_filters: List[str] = None,
+    excluded_filters: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
-    """
-    Returns a rightsizing recommendation for the given instance.
+    """Return a rightsizing recommendation for the given VM instance.
 
-    Class constraints (architecture, GPU, confidential, local storage) are
-    enforced as hard filters — candidates that would break instance compatibility
-    are never returned. Premium storage is a soft ordering hint only.
-    """
+    Fetches hardware metadata, live telemetry percentiles, and catalogue
+    pricing for the current instance. Derives minimum required vCPU and RAM
+    by scaling observed utilisation to the target thresholds, then queries
+    the catalogue for cheaper alternatives that satisfy all hard constraints
+    (architecture, GPU, confidential computing, local storage).
 
+    Class constraints are enforced as hard filters — candidates that would
+    break instance compatibility are never returned. Premium storage is a
+    soft ordering hint only.
+
+    Args:
+        db_cursor: Active database cursor.
+        resource_id (int): Entity ID of the VM instance to evaluate.
+        analysis_days (int, optional): Number of historical days to include
+            in telemetry queries. Defaults to 30.
+        target_cpu_util (float, optional): Target CPU utilisation percentage
+            used to scale the required vCPU count. Defaults to 85.0.
+        target_ram_util (float, optional): Target RAM utilisation percentage
+            used to scale the required memory. Defaults to 80.0.
+        excluded_filters (list of str, optional): Shell-style glob patterns
+            (e.g. ``["Standard_D*"]``) for instance types to exclude.
+            Defaults to an empty list.
+
+    Returns:
+        dict: Result dict with at minimum ``status`` and ``action`` keys.
+            On success with recommendations, also includes
+            ``current_instance``, ``recommendations``, ``constraints_applied``,
+            ``current_actual_daily_cost_eur``, and ``telemetry_used``.
+            On error or no suitable candidate, contains a ``message`` key
+            describing the reason.
+    """
     if target_cpu_util <= 0:
-        target_cpu_util = 1.0 
+        target_cpu_util = 1.0
     if target_ram_util <= 0:
         target_ram_util = 1.0
 
@@ -51,7 +85,7 @@ def evaluate_downsizing(
         target_ram = current["memory_gb"]
 
     provider = current["provider"].lower()
-    
+
     # Disk - sum of max read and write
     iops_max = (tel.get("disk_read_max") or 0) + (tel.get("disk_write_max") or 0)
 
@@ -87,16 +121,15 @@ def evaluate_downsizing(
         req_iops=float(iops_max),
         req_net_mbps=float(required_net_mbps),
         sql_like_patterns=sql_patterns,
-        # Hard constraints
         architecture=current["architecture"],
         is_gpu=current["is_gpu"],
         is_confidential=current["is_confidential"],
         has_local_storage=current["has_local_storage"],
-        # Soft ordering hint
         current_supports_premium=current["supports_premium_storage"],
         exchange_rate=exch_rate,
     )
 
+    # Idling detection: all available metrics below idle thresholds
     idle_checks = []
     if tel.get("cpu_p95") is not None:
         idle_checks.append(tel["cpu_p95"] < 5.0)
@@ -119,7 +152,7 @@ def evaluate_downsizing(
             "action": "none",
             "message": "Žádná menší instance neodpovídá zátěži.",
             "constraints_applied": constraints,
-            "current_instance": current["instance_type"]
+            "current_instance": current["instance_type"],
         }
 
     # Get current costs
@@ -128,7 +161,7 @@ def evaluate_downsizing(
     )
     current_catalog_price = crud_downsizing.get_catalog_hourly_price(
         db_cursor, current["provider"], current["region"],
-        current["os"], current["instance_type"], exchange_rate=exch_rate
+        current["os"], current["instance_type"], exchange_rate=exch_rate,
     )
 
     # No catalog price — return best candidate without financials
@@ -137,7 +170,7 @@ def evaluate_downsizing(
         if is_idling:
             recommendations.append({
                 "recommended_instance": "Vypnout",
-                "warnings": ["Instance je pravděpodobně nečinná."]
+                "warnings": ["Instance je pravděpodobně nečinná."],
             })
             
         seen_warnings = set()
@@ -147,12 +180,11 @@ def evaluate_downsizing(
             if w_tuple not in seen_warnings:
                 recommendations.append({
                     "recommended_instance": cand["instance_type"],
-                    "warnings": cand.get("warnings", [])
+                    "warnings": cand.get("warnings", []),
                 })
                 seen_warnings.add(w_tuple)
                 if not w_tuple:
                     break
-        
         return {
             "status": "success",
             "action": "downsize_recommended",
@@ -164,7 +196,7 @@ def evaluate_downsizing(
 
     # Pick all cheapest candidates up until an exact match is found
     recommendations = []
-    
+
     if is_idling:
         recommendations.append({
             "recommended_instance": "Vypnout",
@@ -173,30 +205,28 @@ def evaluate_downsizing(
                 "projected_daily_cost_eur": 0.0,
                 "estimated_monthly_savings_eur": round(actual_daily_cost * 30, 2),
                 "savings_percentage": 100.0,
-            }
+            },
         })
-        
+
     seen_warnings = set()
 
     for cand in candidates:
-        if cand["hourly_price_usd"] < current_catalog_price: # converted to EUR
+        if cand["hourly_price_usd"] < current_catalog_price:
             w_tuple = tuple(sorted(cand.get("warnings", [])))
             if w_tuple not in seen_warnings:
                 best_savings_ratio = (current_catalog_price - cand["hourly_price_usd"]) / current_catalog_price
                 projected_daily_cost = actual_daily_cost * float(1 - best_savings_ratio)
-                monthly_savings_usd = (actual_daily_cost - projected_daily_cost) * 30
-                
+                monthly_savings = (actual_daily_cost - projected_daily_cost) * 30
                 recommendations.append({
                     "recommended_instance": cand["instance_type"],
                     "warnings": cand.get("warnings", []),
                     "financials": {
                         "projected_daily_cost_eur": round(projected_daily_cost, 2),
-                        "estimated_monthly_savings_eur": round(monthly_savings_usd, 2),
+                        "estimated_monthly_savings_eur": round(monthly_savings, 2),
                         "savings_percentage": round(best_savings_ratio * 100, 2),
-                    }
+                    },
                 })
                 seen_warnings.add(w_tuple)
-                
                 if not w_tuple:
                     break
 

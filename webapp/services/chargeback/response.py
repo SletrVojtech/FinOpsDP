@@ -1,53 +1,91 @@
+"""
+Chargeback Response Module.
+
+This module provides helper functions for building the dashboard API
+response payload from raw cost and forecast data. It handles anomaly
+entry normalisation and service-category limiting.
+"""
+
 import logging
 from datetime import date
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 
 def _make_anomaly_entry(date_str: str, daily_cost: float, thresh_data) -> dict:
-    """Normalises anomaly threshold data into a unified anomaly object."""
+    """Normalise anomaly threshold data into a unified anomaly object.
+
+    Accepts either a dict (from a persisted ``CostAnomalies`` record) or
+    a scalar upper bound (from AutoETS fitted values). Returns a plain
+    no-anomaly object when no threshold data is available.
+
+    Args:
+        date_str (str): ISO date string for the entry.
+        daily_cost (float): Actual observed daily cost in EUR.
+        thresh_data: One of:
+            - ``dict`` with keys ``actual``, ``threshold``, ``delta`` from a
+              persisted anomaly record.
+            - ``float`` scalar representing the AutoETS 95th-percentile upper bound.
+            - ``None`` when no threshold is available.
+
+    Returns:
+        dict: Anomaly object with keys ``date``, ``is_anomaly``, ``actual``,
+            ``threshold``, ``delta``, and optionally ``type``.
+    """
     if isinstance(thresh_data, dict):          # from CostAnomalies DB record
         is_anom = thresh_data["actual"] > thresh_data["threshold"] and thresh_data["actual"] > 4.0
-        return {"date": date_str, "is_anomaly": is_anom,
-                "actual": round(thresh_data["actual"], 2),
-                "threshold": round(thresh_data["threshold"], 2),
-                "delta": round(thresh_data["delta"], 2),
-                "type": "spike"}
+        return {
+            "date": date_str,
+            "is_anomaly": is_anom,
+            "actual": round(thresh_data["actual"], 2),
+            "threshold": round(thresh_data["threshold"], 2),
+            "delta": round(thresh_data["delta"], 2),
+            "type": "spike",
+        }
     elif thresh_data is not None:              # scalar upper-bound from AutoETS fitted values
         thresh_f = float(thresh_data)
         is_anom = daily_cost > thresh_f and daily_cost > 4.0
-        return {"date": date_str, "is_anomaly": is_anom,
-                "actual": round(daily_cost, 2),
-                "threshold": round(thresh_f, 2),
-                "delta": round(max(0.0, daily_cost - thresh_f), 2),
-                "type": "spike"}
-    return {"date": date_str, "is_anomaly": False,
-            "actual": round(daily_cost, 2), "threshold": None, "delta": 0.0}
+        return {
+            "date": date_str,
+            "is_anomaly": is_anom,
+            "actual": round(daily_cost, 2),
+            "threshold": round(thresh_f, 2),
+            "delta": round(max(0.0, daily_cost - thresh_f), 2),
+            "type": "spike",
+        }
+    return {"date": date_str, "is_anomaly": False, "actual": round(daily_cost, 2), "threshold": None, "delta": 0.0}
 
 
 def _limit_breakdown_categories(breakdown_dict: dict, top_n: int = 5) -> dict:
-    """ Groups all but top N categories into 'other'. """
-    # If there are already few enough categories, just return
+    """Reduce a category breakdown to the top N categories by total cost.
+
+    All categories beyond the top N are merged into an ``'other'`` bucket.
+    If ``'other'`` is already among the top N, the overflow costs are
+    merged into it rather than creating a duplicate key.
+
+    Args:
+        breakdown_dict (dict): Nested mapping ``{category : {date_str : cost}}``.
+        top_n (int, optional): Maximum number of distinct categories to keep.
+            Defaults to 5.
+
+    Returns:
+        dict: Reduced breakdown with at most ``top_n + 1`` categories.
+    """
     if len(breakdown_dict) <= top_n:
         return breakdown_dict
-    
-    # Calculate total cost for each category for sorting
-    totals = {}
-    for cat, daily_costs in breakdown_dict.items():
-        totals[cat] = sum(daily_costs.values())
-        
-    # Sort categories by total cost descending
+
+    totals = {cat: sum(daily_costs.values()) for cat, daily_costs in breakdown_dict.items()}
     sorted_cats = sorted(totals.keys(), key=lambda x: totals[x], reverse=True)
-    
+
     top_cats_list = sorted_cats[:top_n]
-    
     new_breakdown = {cat: breakdown_dict[cat] for cat in top_cats_list}
-    
-    other_combined = {}
+
+    other_combined: dict = {}
     for cat in sorted_cats[top_n:]:
         for d_str, cost in breakdown_dict[cat].items():
             other_combined[d_str] = other_combined.get(d_str, 0.0) + cost
-            
+
     if other_combined:
         if "other" in new_breakdown:
             # If 'other' was already in top N, merge the rest into it
@@ -57,17 +95,48 @@ def _limit_breakdown_categories(breakdown_dict: dict, top_n: int = 5) -> dict:
             new_breakdown["other"] = existing_other
         else:
             new_breakdown["other"] = other_combined
-            
+
     return new_breakdown
 
 
 def _build_response_payload(
-    base_date, num_days, cutoff_day, cost_dict, future_forecasts, budget_amount, projected_total, anomaly_thresholds, breakdown_dict
+    base_date: date,
+    num_days: int,
+    cutoff_day: int,
+    cost_dict: dict,
+    future_forecasts: dict,
+    budget_amount: Optional[float],
+    projected_total: Optional[float],
+    anomaly_thresholds: dict,
+    breakdown_dict: dict,
 ) -> dict:
-    """Consolidates cost and forecast data into a response dictionary for the UI."""
-    # Limit to top 5 categories to decrease cluttering
+    """Assemble the final chargeback dashboard response dictionary.
+
+    Iterates over every day in the month, filling ``actual_daily`` and
+    ``actual_cumulative`` up to ``cutoff_day``, then switching to
+    ``forecast_cumulative`` for remaining days. Anomaly entries are generated
+    for each actual day using :func:`_make_anomaly_entry`.
+
+    Args:
+        base_date (date): First day of the target month.
+        num_days (int): Number of days in the target month.
+        cutoff_day (int): Day-of-month index of the last confirmed cost day
+            (0 means no actual data exists for the month).
+        cost_dict (dict): Mapping of ISO date strings to actual daily costs.
+        future_forecasts (dict): Mapping of ISO date strings to forecast values.
+        budget_amount (float, optional): Configured monthly budget in EUR.
+        projected_total (float, optional): Pre-calculated projected total; when
+            ``None`` the running cumulative sum is used instead.
+        anomaly_thresholds (dict): Mapping of date strings to threshold values.
+        breakdown_dict (dict): Nested ``{category : {date_str : cost}}``
+            mapping used for the category breakdown chart.
+
+    Returns:
+        dict: Payload with keys ``month``, ``projected_total``, ``labels``,
+            ``actual_daily``, ``actual_cumulative``, ``forecast_cumulative``,
+            ``anomalies``, ``budget``, and ``breakdown_by_category``.
+    """
     breakdown_dict = _limit_breakdown_categories(breakdown_dict, top_n=5)
-    
     breakdown_arrays: dict[str, list] = {cat: [] for cat in breakdown_dict}
 
     labels, actual_daily, actual_cumulative, forecast_cumulative, anomalies = [], [], [], [], []

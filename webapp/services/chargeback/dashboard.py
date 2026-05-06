@@ -1,6 +1,16 @@
+"""
+Chargeback Dashboard Module.
+
+This module assembles the chargeback dashboard payload for the UI.
+It first checks for a cached forecast snapshot in the database; if none
+exists (or it is stale), it falls back to running a live AutoETS forecast
+via StatsForecast.
+"""
+
 import calendar
 import logging
 from datetime import date, timedelta, datetime
+from typing import Optional
 
 import pandas as pd
 from statsforecast import StatsForecast
@@ -17,8 +27,28 @@ from services.chargeback.response import _build_response_payload
 logger = logging.getLogger(__name__)
 
 
-def _prepare_dates_and_cutoff(cursor, target_month: str = None):
-    """Prepare date interval and actual data cutoff for the given month"""
+def _prepare_dates_and_cutoff(cursor, target_month: Optional[str] = None) -> tuple:
+    """Compute the date interval and actual-data cutoff for a given month.
+
+    Determines ``start_date``, ``end_date``, and the day index of the last
+    day with confirmed billing data (``cutoff_day``). The cutoff is capped
+    one day behind today to avoid partially-ingested data.
+
+    Args:
+        cursor: Active database cursor used to query the latest cost date.
+        target_month (str, optional): Target month in ``YYYY-MM`` format.
+            Defaults to the current calendar month.
+
+    Returns:
+        tuple: A 6-tuple of:
+            - base_date (date): First day of the target month.
+            - start_date (date): Same as base_date.
+            - end_date (date): First day of the following month (exclusive).
+            - num_days (int): Number of days in the target month.
+            - cutoff_date_obj (date): Last date with confirmed cost data.
+            - cutoff_day (int): Day-of-month index of the cutoff (0 if no data
+              or data falls outside the target month).
+    """
     SAFE_DAYS_TO_SUBTRACT = 1
     if target_month:
         year, month = map(int, target_month.split('-'))
@@ -30,7 +60,7 @@ def _prepare_dates_and_cutoff(cursor, target_month: str = None):
     _, last_day = calendar.monthrange(start_date.year, start_date.month)
     end_date = start_date + timedelta(days=last_day)
     num_days = last_day
-    
+
     # Get the latest date with actual data
     max_date_row = costs_crud.get_max_date(cursor, start_date, end_date)
     if max_date_row and max_date_row[0]:
@@ -49,30 +79,58 @@ def _prepare_dates_and_cutoff(cursor, target_month: str = None):
     else:
         cutoff_date_obj = date.today() - timedelta(days=SAFE_DAYS_TO_SUBTRACT)
         cutoff_day = 0
-        
+
     return base_date, start_date, end_date, num_days, cutoff_date_obj, cutoff_day
 
 
-def get_chargeback_dashboard_data(cursor, scope_id: int, active_tags: dict, 
-                                  target_month: str = None, group_by_tag: str = None) -> dict:
+def get_chargeback_dashboard_data(
+    cursor,
+    scope_id: int,
+    active_tags: dict,
+    target_month: Optional[str] = None,
+    group_by_tag: Optional[str] = None,
+) -> dict:
+    """Return chargeback dashboard data, preferring a cached forecast snapshot.
+
+    Checks the ``ForecastHistory`` table for a valid cached forecast
+    (calculated within the last 24 hours). If found, the cached projection
+    is used directly; otherwise the function falls back to a live calculation
+    via :func:`calculate_chargeback_forecast`.
+
+    Args:
+        cursor: Active database cursor.
+        scope_id (int): Root entity ID for the cost scope.
+        active_tags (dict): Active tag filter for the scope.
+        target_month (str, optional): Target month in ``YYYY-MM`` format.
+            Defaults to the current calendar month.
+        group_by_tag (str, optional): Tag key used to group the cost breakdown.
+            When ``None`` the breakdown is grouped by service category.
+
+    Returns:
+        dict: Dashboard payload as produced by
+            :func:`~services.chargeback.response._build_response_payload`.
     """
-    Main entry point for UI. Attempt to load pre-calculated AutoARIMA data from DB.
-    """
-    base_date, start_date, end_date, num_days, cutoff_date_obj, cutoff_day = _prepare_dates_and_cutoff(cursor, target_month)
-    
+    base_date, start_date, end_date, num_days, cutoff_date_obj, cutoff_day = (
+        _prepare_dates_and_cutoff(cursor, target_month)
+    )
+
     latest = costs_crud.get_latest_forecast(cursor, scope_id, active_tags, base_date)
 
     if not latest or not latest.get('daily_forecasts'):
         return calculate_chargeback_forecast(cursor, scope_id, active_tags, target_month, group_by_tag)
-        
+
     budget_amount = costs_crud.get_budget(cursor, scope_id, active_tags, base_date)
     cost_dict = get_aggregated_daily_costs(cursor, scope_id, active_tags, start_date=start_date, end_date=end_date)
     anomaly_thresholds = costs_crud.get_anomalies_for_month(cursor, scope_id, active_tags, start_date, end_date)
-    
+
     if group_by_tag:
-        breakdown_dict = get_aggregated_daily_costs_by_tag_key(cursor, scope_id, active_tags, group_by_tag, start_date=start_date, end_date=end_date)
+        breakdown_dict = get_aggregated_daily_costs_by_tag_key(
+            cursor, scope_id, active_tags, group_by_tag, start_date=start_date, end_date=end_date
+        )
     else:
-        breakdown_dict = get_aggregated_daily_costs_by_category(cursor, scope_id, active_tags, start_date=start_date, end_date=end_date)
+        breakdown_dict = get_aggregated_daily_costs_by_category(
+            cursor, scope_id, active_tags, start_date=start_date, end_date=end_date
+        )
 
     return _build_response_payload(
         base_date=base_date,
@@ -83,89 +141,97 @@ def get_chargeback_dashboard_data(cursor, scope_id: int, active_tags: dict,
         budget_amount=budget_amount,
         projected_total=latest.get("projected_amount"),
         anomaly_thresholds=anomaly_thresholds,
-        breakdown_dict=breakdown_dict
+        breakdown_dict=breakdown_dict,
     )
 
 
-def calculate_chargeback_forecast(cursor, scope_id: int, active_tags: dict, 
-                                  target_month: str = None, group_by_tag: str = None) -> dict:
-    """
-    Calculates monthly spend and creates a forecast with StatsForecast.
-    """
-    base_date, start_date, end_date, num_days, cutoff_date_obj, cutoff_day = _prepare_dates_and_cutoff(cursor, target_month)
+def calculate_chargeback_forecast(
+    cursor,
+    scope_id: int,
+    active_tags: dict,
+    target_month: Optional[str] = None,
+    group_by_tag: Optional[str] = None,
+) -> dict:
+    """Compute a live monthly cost forecast using AutoETS via StatsForecast.
 
-    # Get history
+    Pulls 35 days of historical cost data preceding the target month,
+    fits a weekly-seasonal AutoETS model, and generates day-by-day
+    predictions for the remaining days of the month. Falls back to a
+    7-day simple moving average if the model fails to fit.
+
+    Args:
+        cursor: Active database cursor.
+        scope_id (int): Root entity ID for the cost scope.
+        active_tags (dict): Active tag filter for the scope.
+        target_month (str, optional): Target month in ``YYYY-MM`` format.
+            Defaults to the current calendar month.
+        group_by_tag (str, optional): Tag key used to group the cost breakdown.
+            When ``None`` the breakdown is grouped by service category.
+
+    Returns:
+        dict: Dashboard payload as produced by
+            :func:`~services.chargeback.response._build_response_payload`.
+    """
+    base_date, start_date, end_date, num_days, cutoff_date_obj, cutoff_day = (
+        _prepare_dates_and_cutoff(cursor, target_month)
+    )
+
     history_start = start_date - timedelta(days=35)
     cost_dict = get_aggregated_daily_costs(cursor, scope_id, active_tags, start_date=history_start, end_date=end_date)
     if group_by_tag:
-        breakdown_dict = get_aggregated_daily_costs_by_tag_key(cursor, scope_id, active_tags, group_by_tag, start_date=start_date, end_date=end_date)
+        breakdown_dict = get_aggregated_daily_costs_by_tag_key(
+            cursor, scope_id, active_tags, group_by_tag, start_date=start_date, end_date=end_date
+        )
     else:
-        breakdown_dict = get_aggregated_daily_costs_by_category(cursor, scope_id, active_tags, start_date=start_date, end_date=end_date)
+        breakdown_dict = get_aggregated_daily_costs_by_category(
+            cursor, scope_id, active_tags, start_date=start_date, end_date=end_date
+        )
 
-    # Transform to DataFrame for the model,
-    # fill gaps for all days from history_start to cutoff_date.
+    # Build a contiguous daily DataFrame starting from first non-zero observation
     df_data = []
     first_nonzero_date = history_start
-    # Find the actual boundaries of present data in cost_dict
     if cost_dict:
-        sorted_dates = sorted(cost_dict.keys())
-        for d_str in sorted_dates:
+        for d_str in sorted(cost_dict.keys()):
             if cost_dict[d_str] > 0.0:
                 first_nonzero_date = date.fromisoformat(d_str)
                 break
-                
+
     curr_date = max(history_start, first_nonzero_date)
-        
     while curr_date <= cutoff_date_obj:
         d_str = curr_date.isoformat()
         df_data.append({"ds": curr_date,
                         "y": cost_dict.get(d_str, 0.0), 
                         "unique_id": "cost"})
         curr_date += timedelta(days=1)
-        
+
     df = pd.DataFrame(df_data)
     if not df.empty:
         df['ds'] = pd.to_datetime(df['ds'])
 
-    # Get StatsForecast and predictions
-    future_forecasts = {}
-    ml_success = False
+    future_forecasts: dict = {}
     forecast_df = pd.DataFrame()
     fitted_df = pd.DataFrame()
 
-    # Predict enough days to reach the end_date of the target month
     days_to_predict = (end_date - cutoff_date_obj).days if (cost_dict and cutoff_date_obj) else num_days
 
     try:
-        sf = StatsForecast(
-
-            models=[AutoETS(season_length=7)],
-            freq='D'
-        )
-
+        sf = StatsForecast(models=[AutoETS(season_length=7)], freq='D')
         if df.empty:
             raise ValueError("No data")
         sf.fit(df=df)
-        
-        ml_success = True
-        
-        # Always predict at least 1 day to force sf.forecast to cache fitted values
+
         h_val = max(1, days_to_predict)
         forecast_df = sf.forecast(df=df, h=h_val, level=[95], fitted=True)
         fitted_df = sf.forecast_fitted_values()
-        
-        # If prediction wasn't needed, drop the future forecast
+
         if days_to_predict <= 0:
             forecast_df = pd.DataFrame()
-       
-    except Exception as e:
-        # Log the failure for StatsForecast
+
+    except Exception:
         logger.error("StatsForecast failed, using SMA fallback: %s", scope_id)
-        ml_success = False
         forecast_df = pd.DataFrame()
         fitted_df = pd.DataFrame()
-        
-        # Manually create flat future forecasts as fallback
+
         if not df.empty and days_to_predict > 0:
             run_rate = df['y'].tail(7).mean()
             fallback_date = cutoff_date_obj + timedelta(days=1)
@@ -173,9 +239,8 @@ def calculate_chargeback_forecast(cursor, scope_id: int, active_tags: dict,
                 future_forecasts[fallback_date.strftime("%Y-%m-%d")] = run_rate
                 fallback_date += timedelta(days=1)
 
-
-    # Create dict mapping for upper bound of prediction interval
-    anomaly_thresholds = {}
+    # Extract upper confidence bound as anomaly thresholds from fitted values
+    anomaly_thresholds: dict = {}
     if not fitted_df.empty:
         hi_cols = [c for c in fitted_df.columns if c.lower().endswith('-hi-95')]
         if hi_cols:
@@ -183,17 +248,13 @@ def calculate_chargeback_forecast(cursor, scope_id: int, active_tags: dict,
             for _, row in fitted_df.iterrows():
                 anomaly_thresholds[row['ds'].strftime("%Y-%m-%d")] = row[hi_col]
 
-    # Map forecast values { ds_str: forecast_y }
-    # Only map from forecast_df if no fallback was used
-    if not future_forecasts:
+    if not future_forecasts and not forecast_df.empty:
+        pred_cols = [c for c in forecast_df.columns if 'AutoETS' in c and '-' not in c]
+        if pred_cols:
+            pred_col = pred_cols[0]
+            for _, row in forecast_df.iterrows():
+                future_forecasts[row['ds'].strftime("%Y-%m-%d")] = row[pred_col]
 
-        if not forecast_df.empty:
-            pred_cols = [c for c in forecast_df.columns if 'AutoETS' in c and not '-' in c]
-            if pred_cols:
-                pred_col = pred_cols[0]
-                for _, row in forecast_df.iterrows():
-                    future_forecasts[row['ds'].strftime("%Y-%m-%d")] = row[pred_col]
-            
     budget_amount = costs_crud.get_budget(cursor, scope_id, active_tags, base_date)
 
     return _build_response_payload(
@@ -205,5 +266,5 @@ def calculate_chargeback_forecast(cursor, scope_id: int, active_tags: dict,
         budget_amount=budget_amount,
         projected_total=None,
         anomaly_thresholds=anomaly_thresholds,
-        breakdown_dict=breakdown_dict
+        breakdown_dict=breakdown_dict,
     )

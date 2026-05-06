@@ -11,7 +11,7 @@ from typing import Any, List, Dict, Tuple, Optional
 from psycopg2.extras import execute_values
 from pydantic import ValidationError
 
-from krr_collector.message import KRRBatchPayload, KRRRecommendation
+from krr_collector.message import KRRBatchPayload, KRRRecommendationPayload
 from db_loader.base_processor import BaseProcessor, register_processor
 
 log = logging.getLogger('krr_processor')
@@ -79,12 +79,12 @@ class KRRProcessor(BaseProcessor):
         self._insert_recommendations(values)
         log.info(f"Successfully processed {len(values)} KRR recommendations.")
 
-    def _resolve_hierarchy(self, item: KRRRecommendation, namespace_urn: str) -> int:
+    def _resolve_hierarchy(self, item: KRRRecommendationPayload, namespace_urn: str) -> int:
         """
         Ensures the hierarchy for a KRR recommendation (Provider - Cluster - Namespace).
 
         Args:
-            item (KRRRecommendation): The recommendation item.
+            item (KRRRecommendationPayload): The recommendation item.
             namespace_urn (str): The calculated URN for the namespace.
 
         Returns:

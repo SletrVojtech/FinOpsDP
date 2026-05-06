@@ -1,3 +1,11 @@
+"""
+Currency Conversion Module.
+
+Provides a cached USD-to-EUR exchange rate sourced from the
+frankfurter.dev public API. The rate is refreshed at most once every
+24 hours; a hardcoded fallback rate is used on network failure.
+"""
+
 import httpx
 import logging
 import time
@@ -13,9 +21,15 @@ _cache = {
 CACHE_DURATION = 24 * 3600  # 24 hours
 
 def get_usd_to_eur_rate() -> float:
-    """
-    Fetches the latest USD to EUR exchange rate from frankfurter.dev API.
-    Uses 24h caching to avoid rate limiting.
+    """Fetch the latest USD-to-EUR exchange rate with 24-hour caching.
+
+    Queries the frankfurter.dev public API. Results are cached in a
+    module-level dict for ``CACHE_DURATION`` seconds to prevent excessive
+    outbound requests. Returns the cached fallback rate (0.92) on any
+    network or parsing error.
+
+    Returns:
+        float: Current USD-to-EUR conversion rate.
     """
     now = time.time()
     if now - _cache["last_updated"] < CACHE_DURATION:

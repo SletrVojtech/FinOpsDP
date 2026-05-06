@@ -10,7 +10,7 @@ import logging
 from typing import Any, List, Dict, Tuple, Optional
 from psycopg2.extras import execute_values
 from pydantic import ValidationError
-from cost_collector.message import CostBatchPayload, CostRecord
+from cost_collector.message import CostBatchPayload, CostPayload
 from db_loader.base_processor import BaseProcessor, register_processor
 
 log = logging.getLogger('cost_processor')
@@ -73,12 +73,12 @@ class CostsProcessor(BaseProcessor):
             self._insert_costs_bulk(cost_values)
             log.info(f"Successfully processed {len(cost_values)} cost records.")
 
-    def _get_or_create_parent(self, record: CostRecord, cache: Dict[str, int]) -> int | None:
+    def _get_or_create_parent(self, record: CostPayload, cache: Dict[str, int]) -> int | None:
         """
         Ensures the parent hierarchy (Billing Account -> Account/Sub) exists.
 
         Args:
-            record (CostRecord): The cost record being processed.
+            record (CostPayload): The cost record being processed.
             cache (Dict[str, int]): Local entity ID cache.
 
         Returns:
@@ -115,12 +115,12 @@ class CostsProcessor(BaseProcessor):
 
         return None
 
-    def _resolve_entities_bulk(self, records: List[CostRecord]) -> Dict[str, int]:
+    def _resolve_entities_bulk(self, records: List[CostPayload]) -> Dict[str, int]:
         """
         Resolves or creates all entities in the batch in bulk.
 
         Args:
-            records (List[CostRecord]): The list of cost records.
+            records (List[CostPayload]): The list of cost records.
 
         Returns:
             Dict[str, int]: A mapping of ExternalId to DB ID.
