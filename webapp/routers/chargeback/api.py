@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, Query
 from datetime import date, timedelta
 from db.database import get_db_cursor
-from services import cost_service
+from services.chargeback.dashboard import get_chargeback_dashboard_data, calculate_chargeback_forecast
+from services.chargeback.aggregation import get_aggregated_daily_costs_k8s
 from services.utils import extract_active_tags
 from services.kube_chargeback import get_daily_namespace_allocation
 from crud import costs as cost, allocations
@@ -27,7 +28,7 @@ def api_get_chargeback_data(
 ):
     """Returns data for current month spend and projected forecast, with optional grouping by tag."""
     active_tags = extract_active_tags(request)
-    data = cost_service.get_chargeback_dashboard_data(
+    data = get_chargeback_dashboard_data(
         cursor, scope_id, active_tags, target_month, group_by_tag
     )
     return data
@@ -104,7 +105,7 @@ def api_cluster_cost_detail(
         base_date = (date.today() - timedelta(days=1)).replace(day=1)
         target_month_str = base_date.strftime("%Y-%m")
 
-    forecast_data = cost_service.calculate_chargeback_forecast(
+    forecast_data = calculate_chargeback_forecast(
         cursor, cluster_id, {"cluster": cluster_name}, target_month_str
     )
     daily_cluster_costs = {
@@ -113,7 +114,7 @@ def api_cluster_cost_detail(
         if daily_cost is not None
     }
     
-    daily_cluster_costs = cost_service.get_aggregated_daily_costs_k8s(
+    daily_cluster_costs = get_aggregated_daily_costs_k8s(
         cursor, cluster_id, {"cluster": cluster_name}, 
         start_date=base_date, end_date=base_date + timedelta(days=30)
     )

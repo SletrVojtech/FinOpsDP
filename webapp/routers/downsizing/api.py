@@ -41,7 +41,7 @@ def get_downsizing_recommendation(
     entity_id: int,
     scope_id: int = Query(0, description="Scope ID pro filtrování pravidel"),
     analysis_days: int = Query(30, description="Počet dní pro analýzu"),
-    target_cpu: float = Query(60.0, description="Cílové zatížení CPU v %"),
+    target_cpu: float = Query(85.0, description="Cílové zatížení CPU v %"),
     target_ram: float = Query(80.0, description="Cílové zatížení RAM v %"),
     cursor=Depends(get_db_cursor)
 ):

@@ -4,7 +4,8 @@ from fastapi.templating import Jinja2Templates
 from datetime import date, timedelta
 from db.database import get_db_cursor
 from crud import entities, allocations
-from services import cost_service as costs_service
+from services.chargeback.dashboard import calculate_chargeback_forecast
+from services.chargeback.aggregation import get_aggregated_daily_costs_k8s
 from services.kube_chargeback import get_daily_namespace_allocation
 import os
 from pathlib import Path
@@ -80,7 +81,7 @@ def cluster_cost_detail(request: Request, cluster_id: int,
         base_date = (date.today() - timedelta(days=1)).replace(day=1)
         target_month_str = base_date.strftime("%Y-%m")
 
-    forecast_data = costs_service.calculate_chargeback_forecast(
+    forecast_data = calculate_chargeback_forecast(
         cursor, cluster_id, {"cluster": cluster_name}, target_month_str
     )
     daily_cluster_costs = {
@@ -89,7 +90,7 @@ def cluster_cost_detail(request: Request, cluster_id: int,
         if daily_cost is not None
     }
 
-    daily_cluster_costs = costs_service.get_aggregated_daily_costs_k8s(
+    daily_cluster_costs = get_aggregated_daily_costs_k8s(
         cursor, cluster_id, {"cluster": cluster_name}, 
         start_date=base_date, end_date=base_date + timedelta(days=30)
     )
