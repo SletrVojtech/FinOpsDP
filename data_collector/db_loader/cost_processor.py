@@ -1,36 +1,61 @@
+"""
+Cost Processor Module.
+
+This module provides the CostsProcessor class, which handles the ingestion
+of cost data into the database.
+"""
+
 import json
 import logging
+from typing import Any, List, Dict, Tuple, Optional
 from psycopg2.extras import execute_values
 from pydantic import ValidationError
-from cost_collector.message import CostBatchPayload
+from cost_collector.message import CostBatchPayload, CostRecord
 from db_loader.base_processor import BaseProcessor, register_processor
-
 
 log = logging.getLogger('cost_processor')
 
+
 @register_processor("cost_export")
 class CostsProcessor(BaseProcessor):
+    """
+    Handles the ingestion of cost records collected from cloud providers.
 
-    def process(self, envelope):
+    Responsible for resolving cloud resource hierarchies (Billing Accounts, 
+    Subscriptions/AWS Accounts) and bulk-upserting cost records into the 
+    Costs hypertable.
+    """
+
+    def process(self, envelope: Any):
+        """
+        Main entry point for processing a cost batch envelope.
+
+        Validates the payload, resolves entity IDs in bulk, and performs 
+        a bulk upsert of cost data.
+
+        Args:
+            envelope (Any): The ingestion message envelope.
+        """
         body = envelope.payload
         try:
             batch = CostBatchPayload.model_validate(body)
         except ValidationError as e:
-            log.error(f"Invalid payload: {e}")
+            log.error(f"Invalid cost payload: {e}")
             raise
 
         if not batch.records:
+            log.debug("Received empty cost batch, skipping.")
             return
 
-        # Find all EntityIDs
+        # Resolve all resource Entity IDs in bulk
         entity_map = self._resolve_entities_bulk(batch.records)
 
-        # Prepare bulk insert
+        # Prepare records for bulk insert
         cost_values = []
         for record in batch.records:
             entity_id = entity_map.get(record.resource_id.lower())
             if not entity_id:
-                log.warning(f"Couldn't find entity for resource: {record.resource_id}")
+                log.warning(f"Could not resolve entity for resource: {record.resource_id}")
                 continue
 
             cost_values.append((
@@ -46,12 +71,18 @@ class CostsProcessor(BaseProcessor):
 
         if cost_values:
             self._insert_costs_bulk(cost_values)
-            log.info(f"Successfully inserted {len(cost_values)} records.")
+            log.info(f"Successfully processed {len(cost_values)} cost records.")
 
-
-    def _get_or_create_parent(self,record, cache):
+    def _get_or_create_parent(self, record: CostRecord, cache: Dict[str, int]) -> int | None:
         """
-        Generates a hierarchy of resource entities.
+        Ensures the parent hierarchy (Billing Account -> Account/Sub) exists.
+
+        Args:
+            record (CostRecord): The cost record being processed.
+            cache (Dict[str, int]): Local entity ID cache.
+
+        Returns:
+            int: The DB ID of the immediate parent entity.
         """
         provider = record.provider
         res_id = record.resource_id
@@ -59,12 +90,20 @@ class CostsProcessor(BaseProcessor):
         billing_name = record.billing_name
         account_name = record.account_name
         
+        # Ensure Billing Account exists
         if billing_id not in cache:
-            cache[billing_id] = self.upsert_basic_entity(billing_id, provider, billing_name, "billing_account", 0, cache)
+            cache[billing_id] = self.upsert_basic_entity(
+                billing_id, provider, billing_name, "billing_account", 0, cache
+            )
 
+        # Resolve provider-specific hierarchy
         if provider == "aws":
-            return self.resolve_aws_hierarchy(record.account_id, account_name=account_name, parent_id=cache[billing_id], cache=cache)
-
+            return self.resolve_aws_hierarchy(
+                record.account_id, 
+                account_name=account_name, 
+                parent_id=cache[billing_id], 
+                cache=cache
+            )
         elif provider == "azure":
             return self.resolve_azure_hierarchy(
                 resource_id=res_id, 
@@ -76,53 +115,61 @@ class CostsProcessor(BaseProcessor):
 
         return None
 
-    def _resolve_entities_bulk(self, records) -> dict:
+    def _resolve_entities_bulk(self, records: List[CostRecord]) -> Dict[str, int]:
         """
-        Finds/Creates/Updates all entities
+        Resolves or creates all entities in the batch in bulk.
+
+        Args:
+            records (List[CostRecord]): The list of cost records.
+
+        Returns:
+            Dict[str, int]: A mapping of ExternalId to DB ID.
         """
+        # Deduplicate resources to avoid redundant upserts
+        unique_entities = {record.resource_id.lower(): record for record in records}
 
-        unique_entities = { record.resource_id: record for record in records }
-
-        parent_cache = {}
+        parent_cache: Dict[str, int] = {}
         entity_values = []
         
-        # JSONB concatenation based on https://www.postgresql.org/docs/9.5/functions-json.html
-        # Coalesce to prevent NULL values
-        # Some resources aren't updated by MetricsProcessor, but CostExports don't necessarily see all existing tags.
+        # SQL for bulk entity upsert. 
+        # Merges tags using JSONB concatenation and updates the region.
         insert_query = """
-            INSERT INTO Entities (ExternalId, ProviderName, ResourceName, ResourceType,ParentId, Tags, RegionId)
+            INSERT INTO Entities (ExternalId, ProviderName, ResourceName, ResourceType, ParentId, Tags, RegionId)
             VALUES %s
             ON CONFLICT (ExternalId) DO UPDATE 
             SET 
                 Tags = COALESCE(Entities.Tags, '{}'::jsonb) || COALESCE(EXCLUDED.Tags, '{}'::jsonb),
                 RegionId = EXCLUDED.RegionId, 
                 UpdatedAt = NOW()
-            RETURNING Id, ExternalId
+            RETURNING Id, ExternalId;
         """
 
-        for rec in unique_entities.values():
+        for ext_id, rec in unique_entities.items():
             parent_id = self._get_or_create_parent(rec, parent_cache)
-            if not rec.resource_name or rec.resource_name == "None":
-                rec.resource_name = rec.resource_id
+            
+            res_name = rec.resource_id if (not rec.resource_name or rec.resource_name == "None") else rec.resource_name
+            
             entity_values.append((
-                rec.resource_id.lower(),
+                ext_id,
                 rec.provider.lower(),
-                rec.resource_name.lower(),
+                res_name.lower(),
                 rec.resource_type.lower(),
                 parent_id,
                 json.dumps(rec.tags) if rec.tags else "{}",
                 rec.region_id
             ))
         
-        
+        # Execute bulk insert and capture results for mapping
         results = execute_values(self.cursor, insert_query, entity_values, fetch=True)
         
-        # Return a dictionary for external ID and EntityID
         return {row[1]: row[0] for row in results}
 
-
-    def _insert_costs_bulk(self, cost_values: list):
+    def _insert_costs_bulk(self, cost_values: List[Tuple]):
         """
+        Performs a bulk upsert of cost data into the Costs table.
+
+        Args:
+            cost_values (List[Tuple]): Prepared tuples for insertion.
         """
         query = """
             INSERT INTO Costs (

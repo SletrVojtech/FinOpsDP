@@ -1,21 +1,41 @@
+"""
+KRR Processor Module.
+
+This module provides the KRRProcessor class, which handles the ingestion
+of Kubernetes Resource Recommendations (from KRR) into the database.
+"""
+
 import logging
+from datetime import datetime, timezone
+from typing import Any, List, Dict, Tuple, Optional
 from psycopg2.extras import execute_values
 from pydantic import ValidationError
-from datetime import datetime, timezone
 
-from krr_collector.message import KRRBatchPayload
+from krr_collector.message import KRRBatchPayload, KRRRecommendation
 from db_loader.base_processor import BaseProcessor, register_processor
 
 log = logging.getLogger('krr_processor')
 
+
 @register_processor("krr_collector")
 class KRRProcessor(BaseProcessor):
     """
-    Parse KRR Recommendations from RabbitMQ into DB.
-    Links recommendations to the Namespace entity.
+    Handles the ingestion of KRR recommendations for Kubernetes workloads.
+
+    Links recommendations to their respective Namespace entities and updates
+    the KubeRecommendations table with the latest calculated values.
     """
 
-    def process(self, envelope):
+    def process(self, envelope: Any):
+        """
+        Main entry point for processing a KRR recommendation envelope.
+
+        Validates the payload, resolves the namespace hierarchy, and 
+        performs a bulk upsert of recommendation data.
+
+        Args:
+            envelope (Any): The ingestion message envelope.
+        """
         payload_dict = envelope.payload
         try:
             batch = KRRBatchPayload.model_validate(payload_dict)
@@ -24,15 +44,17 @@ class KRRProcessor(BaseProcessor):
             raise
 
         if not batch.recommendations:
+            log.debug("Received empty KRR batch, skipping.")
             return
 
-        scan_timestamp = envelope.timestamp if hasattr(envelope, 'timestamp') else datetime.now(timezone.utc)
+        # Use envelope timestamp or current time if missing
+        scan_timestamp = getattr(envelope, 'timestamp', datetime.now(timezone.utc))
 
         values = []
-        namespace_cache = {}
+        namespace_cache: Dict[str, int] = {}
 
         for item in batch.recommendations:
-            # Create an URN for the namespace and get ID
+            # Create a standardized URN for the namespace (cluster:namespace)
             namespace_urn = f"{item.cluster_id}:namespace/{item.namespace}".lower()
 
             if namespace_urn not in namespace_cache:
@@ -41,7 +63,7 @@ class KRRProcessor(BaseProcessor):
             
             entity_id = namespace_cache[namespace_urn]
 
-            # Add a line to the insert
+            # Prepare recommendation record for bulk insertion
             values.append((
                 entity_id,
                 scan_timestamp,
@@ -55,12 +77,18 @@ class KRRProcessor(BaseProcessor):
             ))
 
         self._insert_recommendations(values)
-        log.info(f"Saved {len(values)} recommendations to DB.")
+        log.info(f"Successfully processed {len(values)} KRR recommendations.")
 
-    def _resolve_hierarchy(self, item, namespace_urn) -> int:
+    def _resolve_hierarchy(self, item: KRRRecommendation, namespace_urn: str) -> int:
         """
-        Creates hierarchy of entities on top of cloud providers.
-        Returns entity ID for the NAMESPACE.
+        Ensures the hierarchy for a KRR recommendation (Provider - Cluster - Namespace).
+
+        Args:
+            item (KRRRecommendation): The recommendation item.
+            namespace_urn (str): The calculated URN for the namespace.
+
+        Returns:
+            int: The DB ID for the namespace entity.
         """
         provider = item.cloud_provider
         acc_id = item.account_id.lower()
@@ -69,13 +97,13 @@ class KRRProcessor(BaseProcessor):
 
         parent_id = 0
         
+        # Resolve cloud provider account
         if provider == "azure":
             parent_id = self.resolve_azure_hierarchy(cluster_id)
-                
         elif provider == "aws":
             parent_id = self.resolve_aws_hierarchy(acc_id)
 
-        # UPSERT k8s cluster
+        # Ensure the Kubernetes Cluster entity exists
         cluster_db_id = self.upsert_basic_entity(
             ext_id=cluster_id,
             provider=provider, 
@@ -84,7 +112,7 @@ class KRRProcessor(BaseProcessor):
             parent_id=parent_id
         )
 
-        # UPSERT Namespace
+        # Ensure the Kubernetes Namespace entity exists
         return self.upsert_basic_entity(
             ext_id=namespace_urn,
             provider=provider,
@@ -93,8 +121,13 @@ class KRRProcessor(BaseProcessor):
             parent_id=cluster_db_id
         )
 
-    def _insert_recommendations(self, values: list):
-        """Bulk UPSERT of latest recommendations into KubeRecommendations table"""
+    def _insert_recommendations(self, values: List[Tuple]):
+        """
+        Bulk-upserts recommendations into the KubeRecommendations table.
+
+        Args:
+            values (List[Tuple]): Prepared tuples for insertion.
+        """
         query = """
             INSERT INTO KubeRecommendations (
                 EntityId, Timestamp, WorkloadType, WorkloadName, ContainerName, 
