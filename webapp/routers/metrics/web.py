@@ -1,3 +1,10 @@
+"""
+Metrics Web UI Router.
+
+Serves pages and dashboard views for entity metrics, cost anomalies,
+and forecast quality. All endpoints are tagged *Web UI / Metrics*.
+"""
+
 from fastapi import APIRouter, Request, Depends, HTTPException
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
@@ -19,7 +26,21 @@ def view_metrics_dashboard(
     scope_id: str = "", 
     cursor=Depends(get_db_cursor)
 ):
-    """Shows a page with metrics dashboard for given entity"""
+    """Render the entity metrics dashboard page.
+
+    Args:
+        request (Request): Incoming HTTP request.
+        entity_id (int): Entity ID whose metrics to display.
+        current_qs (str): Reconstructed tag query string for links.
+        scope_id (str): Current scope ID string for breadcrumb.
+        cursor: Injected DB cursor.
+
+    Returns:
+        HTMLResponse: Rendered ``metrics_dashboard.html``.
+
+    Raises:
+        HTTPException: 404 if the entity is not found.
+    """
     available_metrics = metrics.get_available_metric_names(cursor, entity_id)
     
     # Get the resource name
@@ -39,10 +60,24 @@ def view_metrics_dashboard(
 
 @router.get("/ui/anomalies", response_class=HTMLResponse)
 def view_anomalies_dashboard(request: Request):
-    """Shows a page with the anomalies dashboard."""
+    """Render the cost anomalies dashboard page.
+
+    Args:
+        request (Request): Incoming HTTP request.
+
+    Returns:
+        HTMLResponse: Rendered ``anomalies_dashboard.html``.
+    """
     return templates.TemplateResponse(request, "anomalies_dashboard.html", {})
 
 @router.get("/ui/forecast-quality", response_class=HTMLResponse)
 def view_forecast_quality_dashboard(request: Request):
-    """Shows a page with the forecast quality dashboard."""
+    """Render the forecast quality dashboard page.
+
+    Args:
+        request (Request): Incoming HTTP request.
+
+    Returns:
+        HTMLResponse: Rendered ``forecast_quality_dashboard.html``.
+    """
     return templates.TemplateResponse(request, "forecast_quality_dashboard.html", {})

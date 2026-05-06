@@ -1,3 +1,11 @@
+"""
+Chargeback Web UI Router.
+
+Serves HTML pages and AJAX responses for the chargeback dashboard,
+allocation-rules manager, cluster list, and cluster daily-cost detail
+view. All endpoints are tagged *Web UI / Chargeback*.
+"""
+
 from fastapi import APIRouter, Request, Depends, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
@@ -23,7 +31,21 @@ def view_chargeback_dashboard(
     current_qs: str = "",
     cursor=Depends(get_db_cursor)
 ):
-    """Shows a page with chargeback dashboard"""
+    """Render the chargeback dashboard HTML page.
+
+    Args:
+        request (Request): Incoming HTTP request.
+        scope_id (str): Entity scope ID string. Defaults to "".
+        target_month (str): Target month in ``YYYY-MM`` format.
+        current_qs (str): Reconstructed tag query string for template links.
+        cursor: Injected DB cursor.
+
+    Returns:
+        HTMLResponse: Rendered ``chargeback_dashboard.html`` template.
+
+    Raises:
+        HTTPException: 422 if ``scope_id`` is non-numeric.
+    """
     try:
         scope_int = int(scope_id) if scope_id else 0
     except ValueError:
@@ -42,7 +64,15 @@ def view_allocations_manager(
     request: Request, 
     cursor=Depends(get_db_cursor)
 ):
-    """List and edit allocation rules"""
+    """Render the allocation rules management page.
+
+    Args:
+        request (Request): Incoming HTTP request.
+        cursor: Injected DB cursor.
+
+    Returns:
+        HTMLResponse: Rendered ``allocations_manager.html`` template.
+    """
     allocs = allocations.get_allocation_rules(cursor)
     return templates.TemplateResponse(request, "allocations_manager.html", {
         "rules": allocs
@@ -50,7 +80,15 @@ def view_allocations_manager(
 
 @router.get("/ui/clusters", response_class=HTMLResponse)
 def list_clusters(request: Request, cursor=Depends(get_db_cursor)):
-    """List clusters for chargeback"""
+    """Render the Kubernetes cluster list page.
+
+    Args:
+        request (Request): Incoming HTTP request.
+        cursor: Injected DB cursor.
+
+    Returns:
+        HTMLResponse: Rendered ``clusters_dashboard.html`` template.
+    """
     # Filter for clusters
     query = "SELECT Id, ResourceName FROM Entities WHERE ResourceType = 'kubernetes_cluster' ORDER BY ResourceName"
     cursor.execute(query)
@@ -63,7 +101,21 @@ def list_clusters(request: Request, cursor=Depends(get_db_cursor)):
 @router.get("/ui/clusters/{cluster_id}/costs")
 def cluster_cost_detail(request: Request, cluster_id: int,
                         target_month: str = None, cursor=Depends(get_db_cursor)):
-    """Plot a stacked graph with daily costs for given cluster."""
+    """Return or render a stacked daily-cost chart for a cluster.
+
+    Args:
+        request (Request): Incoming HTTP request.
+        cluster_id (int): Entity ID of the cluster.
+        target_month (str, optional): Target month in ``YYYY-MM`` format.
+            Defaults to the month before today.
+        cursor: Injected DB cursor.
+
+    Returns:
+        HTMLResponse or JSONResponse: Full page or chart-data JSON.
+
+    Raises:
+        HTTPException: 422 if ``target_month`` is invalid.
+    """
     # Get cluster name
     cursor.execute("SELECT ResourceName FROM Entities WHERE Id = %s", (cluster_id,))
     row = cursor.fetchone()

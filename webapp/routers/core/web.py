@@ -1,3 +1,10 @@
+"""
+Core Web UI Router.
+
+Serves the main dashboard, scope-explorer, and global tag-filter rules
+pages. All endpoints are tagged *Web UI / Core*.
+"""
+
 import urllib.parse
 from fastapi import APIRouter, Request, Depends, HTTPException, Form
 from fastapi.responses import HTMLResponse
@@ -14,12 +21,33 @@ router = APIRouter(tags=["Web UI / Core"])
 
 @router.get("/", response_class=HTMLResponse)
 def dashboard(request: Request):
-    """Default page"""
+    """Render the main dashboard page.
+
+    Args:
+        request (Request): Incoming HTTP request.
+
+    Returns:
+        HTMLResponse: Rendered ``dashboard.html``.
+    """
     return templates.TemplateResponse(request, "dashboard.html", {})
 
 @router.get("/ui/scope/{node_id}", response_class=HTMLResponse)
 @router.get("/ui/scope/", response_class=HTMLResponse)
 def get_scope(request: Request, node_id: int = 0, cursor=Depends(get_db_cursor)):
+    """Render the scope-explorer partial for a given entity node.
+
+    Extracts active tag filters from query parameters, walks the entity
+    subtree, and returns a filtered/paginated scope view. Also includes
+    the current downsizing exclusion patterns for the scope.
+
+    Args:
+        request (Request): Incoming HTTP request (contains tag params).
+        node_id (int): Entity node ID to explore. Defaults to 0 (root).
+        cursor: Injected DB cursor.
+
+    Returns:
+        HTMLResponse: Rendered ``partial/scope_view.html``.
+    """
     # Parse tags from the query
     active_tags = {}
     for param_name, param_value in request.query_params.items():
@@ -52,7 +80,22 @@ def get_scope(request: Request, node_id: int = 0, cursor=Depends(get_db_cursor))
 
 @router.get("/ui/tag_values", response_class=HTMLResponse)
 def get_tag_values(request: Request, scope_id: str = "", tag_key: str = None, current_qs: str = "", cursor=Depends(get_db_cursor)):
-    """Generates buttons for tag values in current scope"""
+    """Return an HTMX partial with tag-value filter buttons for the scope explorer.
+
+    Args:
+        request (Request): Incoming HTTP request.
+        scope_id (str): Entity scope ID string. Defaults to "".
+        tag_key (str, optional): Tag key to generate value buttons for.
+            Returns an empty response when not provided.
+        current_qs (str): Existing tag query string to append new filters to.
+        cursor: Injected DB cursor.
+
+    Returns:
+        HTMLResponse: Rendered ``partial/tag_values.html`` or empty ``HTMLResponse``.
+
+    Raises:
+        HTTPException: 422 if ``scope_id`` is non-numeric.
+    """
     if not tag_key:
         return HTMLResponse("")
         
@@ -71,13 +114,33 @@ def get_tag_values(request: Request, scope_id: str = "", tag_key: str = None, cu
 
 @router.get("/ui/rules", response_class=HTMLResponse)
 def view_rules_dashboard(request: Request, cursor=Depends(get_db_cursor)):
-    """Shows the generic tag-filtering rules dashboard"""
+    """Render the global tag-filter rules management page.
+
+    Args:
+        request (Request): Incoming HTTP request.
+        cursor: Injected DB cursor.
+
+    Returns:
+        HTMLResponse: Rendered ``rules_dashboard.html`` with all rules.
+    """
     tag_rules = rules.get_tag_filtering_rules(cursor)
     return templates.TemplateResponse(request, "rules_dashboard.html", {"rules": tag_rules})
 
 @router.post("/ui/rules", response_class=HTMLResponse)
 def add_tag_rule(request: Request, pattern: str = Form(...), cursor=Depends(get_db_cursor)):
-    """Add a new tag filtering rule and update the view"""
+    """Add a tag-filter rule and re-render the rules list.
+
+    Submitted via an HTMX form POST; returns the full updated
+    ``rules_dashboard.html`` partial.
+
+    Args:
+        request (Request): Incoming HTTP request.
+        pattern (str): New glob pattern to add.
+        cursor: Injected DB cursor.
+
+    Returns:
+        HTMLResponse: Re-rendered ``rules_dashboard.html``.
+    """
     if pattern and pattern.strip():
         rules.add_tag_filtering_rule(cursor, pattern.strip())
         cursor.connection.commit()
@@ -87,7 +150,16 @@ def add_tag_rule(request: Request, pattern: str = Form(...), cursor=Depends(get_
 
 @router.delete("/ui/rules/{rule_id}")
 def delete_tag_rule(request: Request, rule_id: int, cursor=Depends(get_db_cursor)):
-    """Delete a rule and return empty so htmx removes the row."""
+    """Delete a tag-filter rule and return an empty response for HTMX row removal.
+
+    Args:
+        request (Request): Incoming HTTP request.
+        rule_id (int): Primary key of the rule to delete.
+        cursor: Injected DB cursor.
+
+    Returns:
+        HTMLResponse: Empty response (HTMX uses this to remove the table row).
+    """
     rules.delete_rule(cursor, rule_id)
     cursor.connection.commit()
     # Triggers an element removal on the UI
