@@ -1,8 +1,14 @@
+"""
+Database Table Templates and Schema Definitions.
 
+This module contains the SQL schema definitions for the FinOps database,
+including base tables (Entities, Costs, Metrics, etc.) and helper functions
+for creating TimescaleDB Continuous Aggregates (CAGGs).
+"""
 
 SCHEMA_DEFINITIONS = {
     # DataDictionary should be first to exist.
-    "datadictionary":"""
+    "datadictionary": """
     CREATE TABLE DataDictionary (
         TableName VARCHAR(100) PRIMARY KEY,
         DataType VARCHAR(50),      -- 'metric', 'cost', 'kube'
@@ -74,7 +80,7 @@ SCHEMA_DEFINITIONS = {
         tsdb.segmentby = 'EntityId'
     );
     """,
-    "budgets":"""
+    "budgets": """
     CREATE TABLE Budgets (
         Id SERIAL PRIMARY KEY,
         ScopeId INTEGER REFERENCES Entities(Id),
@@ -83,7 +89,7 @@ SCHEMA_DEFINITIONS = {
         PeriodMonth DATE                        
     );
     """,
-    "forecasthistory":"""
+    "forecasthistory": """
     CREATE TABLE ForecastHistory (
         Id SERIAL PRIMARY KEY,
         ScopeId INTEGER REFERENCES Entities(Id),
@@ -96,7 +102,7 @@ SCHEMA_DEFINITIONS = {
 
         UNIQUE(ScopeId, Tags, TargetMonth, ForecastDate)
     );""",
-    "costanomalies":"""
+    "costanomalies": """
     CREATE TABLE CostAnomalies (
         Id SERIAL PRIMARY KEY,
         ScopeId INTEGER REFERENCES Entities(Id),
@@ -112,7 +118,7 @@ SCHEMA_DEFINITIONS = {
         UNIQUE(ScopeId, Tags, AnomalyDate, AnomalyType)
     );
     """,
-    "allocationrules":"""
+    "allocationrules": """
     CREATE TABLE AllocationRules (
         Id SERIAL PRIMARY KEY,
         RuleName VARCHAR(100),
@@ -121,17 +127,17 @@ SCHEMA_DEFINITIONS = {
         Percentage DECIMAL(5,2) NOT NULL CHECK (Percentage > 0 AND Percentage <= 100)
     );
     """,
-    "rules":"""
+    "rules": """
     CREATE TABLE Rules (
         Id SERIAL PRIMARY KEY,
         ScopeId INTEGER REFERENCES Entities(Id),
         Tags JSONB,
         ExcludedPatterns JSONB,
         RuleType VARCHAR(50) DEFAULT 'downsizing_exclusion',
-        UNIQUE(ScopeId, Tags)
+        UNIQUE(ScopeId, Tags, RuleType)
     );
     """,
-    "kuberecommendations":"""
+    "kuberecommendations": """
     CREATE TABLE KubeRecommendations (
          Id SERIAL PRIMARY KEY,
          EntityId INTEGER REFERENCES Entities(Id), -- points to a namespace
@@ -148,7 +154,7 @@ SCHEMA_DEFINITIONS = {
          UNIQUE(EntityId, WorkloadType, WorkloadName, ContainerName)
     );
     """,
-    "hardwarecatalog":"""
+    "hardwarecatalog": """
     CREATE TABLE HardwareCatalog (
         Cloud VARCHAR(50) NOT NULL,
         InstanceType VARCHAR(100) NOT NULL,
@@ -169,7 +175,7 @@ SCHEMA_DEFINITIONS = {
         PRIMARY KEY (Cloud, InstanceType)
     );
     """,
-    "pricingcatalog":"""
+    "pricingcatalog": """
     CREATE TABLE pricingcatalog (
         Cloud VARCHAR(50) NOT NULL,
         InstanceType VARCHAR(100) NOT NULL,
@@ -182,7 +188,17 @@ SCHEMA_DEFINITIONS = {
     """
 }
 
-def cagg_first_metrics(name:str, interval:str):
+def cagg_first_metrics(name: str, interval: str) -> str:
+    """
+    Generates SQL for creating the first level of a Continuous Aggregate.
+
+    Args:
+        name (str): Name of the materialized view.
+        interval (str): Time bucket interval (e.g., '1 hour').
+
+    Returns:
+        str: SQL CREATE MATERIALIZED VIEW statement.
+    """
     return f"""
     CREATE MATERIALIZED VIEW {name}
             WITH (timescaledb.continuous) AS
@@ -199,7 +215,18 @@ def cagg_first_metrics(name:str, interval:str):
     GROUP BY 1, 2, 3;
     """
 
-def cagg_next_metrics(name:str, interval:str, source:str):
+def cagg_next_metrics(name: str, interval: str, source: str) -> str:
+    """
+    Generates SQL for creating a nested Continuous Aggregate.
+
+    Args:
+        name (str): Name of the materialized view.
+        interval (str): Time bucket interval.
+        source (str): The source CAGG view name.
+
+    Returns:
+        str: SQL CREATE MATERIALIZED VIEW statement.
+    """
     return f"""
     CREATE MATERIALIZED VIEW {name}
                 WITH (timescaledb.continuous) AS
