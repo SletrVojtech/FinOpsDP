@@ -1,9 +1,19 @@
+"""
+Catalog Message Module.
+
+This module defines the data structures used for passing hardware and pricing
+information from the collectors to the ingestion queue.
+"""
+
 from pydantic import BaseModel, confloat, constr
 from typing import Optional
 from pydantic import Field
 
 
 class HardwareRecord(BaseModel):
+    """
+    Represents hardware specifications for a cloud instance type.
+    """
     cloud: str
     instance_type: str
     instance_family: str
@@ -20,6 +30,9 @@ class HardwareRecord(BaseModel):
     supports_premium_storage: bool = False      # Premium IO
 
 class PricingRecord(BaseModel):
+    """
+    Represents the pricing information for a specific instance configuration.
+    """
     cloud: str
     instance_type: str
     region: str

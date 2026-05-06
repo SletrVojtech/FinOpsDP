@@ -1,3 +1,10 @@
+"""
+Pricing Collection Module.
+
+This module is responsible for downloading pricing information from
+AWS and Azure APIs.
+"""
+
 import requests
 from typing import Dict, Any, List
 from abc import ABC, abstractmethod
@@ -5,16 +12,23 @@ from catalog_collector.message import PricingRecord
 
 
 class CloudPricingDownloader(ABC):
-    """Abstract class for pricing downloader"""
+    """
+    Abstract base class for a cloud pricing downloader.
+    """
 
     @abstractmethod
-    def fetch_pricing(self) -> List[Dict[str, Any]]:
-        """Returns list of PricingRecords"""
+    def fetch_pricing(self) -> List[PricingRecord]:
+        """
+        Fetch pricing records from the cloud provider.
+
+        Returns:
+            List[PricingRecord]: A list of pricing records.
+        """
         pass
 
 class AzurePricingDownloader(CloudPricingDownloader):
     """
-    Azure price API querying.
+    Azure pricing API querying.
     https://learn.microsoft.com/en-us/rest/api/cost-management/retail-prices/azure-retail-prices
     """
     BASE_URL = "https://prices.azure.com/api/retail/prices"
@@ -22,6 +36,12 @@ class AzurePricingDownloader(CloudPricingDownloader):
     def normalize_azure_pricing_os(self, azure_product_name: str) -> str:
         """
         Parse OS name from the Azure product name.
+
+        Args:
+            azure_product_name (str): The product name from Azure pricing API.
+
+        Returns:
+            str: Normalized operating system name.
         """
         if not azure_product_name:
             return "Linux"
@@ -37,7 +57,13 @@ class AzurePricingDownloader(CloudPricingDownloader):
             
         return "Linux"
 
-    def fetch_pricing(self) -> List[Dict[str, Any]]:
+    def fetch_pricing(self) -> List[PricingRecord]:
+        """
+        Fetch Azure pricing records for virtual machines.
+
+        Returns:
+            List[PricingRecord]: A list of Azure pricing records.
+        """
         pricing_list = []
         
         # Filter for Virtual machines with Payasyougo pricing
@@ -77,16 +103,25 @@ class AzurePricingDownloader(CloudPricingDownloader):
 
 class AWSPricingDownloader(CloudPricingDownloader):
     """
-    AWS price API querying
+    AWS pricing API querying.
     https://docs.aws.amazon.com/awsaccountbilling/latest/aboutv2/using-the-aws-price-list-bulk-api-fetching-price-list-files-manually.html
     """
     def __init__(self):
+        """
+        Initialize the AWS pricing downloader.
+        """
         # API for list of all regions
         self.index_url = "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonEC2/current/region_index.json"
 
     def _normalize_aws_pricing_os(self, aws_os_string: str) -> str:
         """
-        Unify the oprating system string for AWS.
+        Unify the operating system string for AWS.
+
+        Args:
+            aws_os_string (str): The OS string from the AWS pricing API.
+
+        Returns:
+            str: Normalized operating system name.
         """
         if not aws_os_string:
             return "Linux"
@@ -103,16 +138,22 @@ class AWSPricingDownloader(CloudPricingDownloader):
             
         return "Linux"
 
-    def fetch_pricing(self) -> List[Dict[str, Any]]:
+    def fetch_pricing(self) -> List[PricingRecord]:
+        """
+        Fetch AWS pricing records for all regions.
+
+        Returns:
+            List[PricingRecord]: A list of AWS pricing records.
+        """
         pricing_list = []
         
         # List of regions
-        print("Fetching AWS Region Index...")
+        print("Fetching AWS Region Index")
         regions_data = requests.get(self.index_url).json()
         
         # Iterate over regions
         for region_code, region_info in regions_data.get("regions", {}).items():
-            print(f"Downloading AWS pricing for {region_code}...")
+            print(f"Downloading AWS pricing for {region_code}")
             
             # Get the pricing catalog
             regional_json_path = region_info["currentVersionUrl"]

@@ -1,3 +1,10 @@
+"""
+Hardware Collection Module.
+
+This module is responsible for downloading hardware specifications from
+AWS and Azure APIs.
+"""
+
 import boto3
 import requests
 from typing import Dict, Any, List, Optional
@@ -6,19 +13,33 @@ from catalog_collector.message import HardwareRecord
 import re
 
 class CloudHardwareDownloader(ABC):
-    """Abstract class for hardware downloader"""
+    """
+    Abstract base class for a cloud hardware downloader.
+    """
     @abstractmethod
-    def fetch_hardware(self) -> List[Dict[str, Any]]:
-        """Returns list of HardwareRecords"""
+    def fetch_hardware(self) -> List[HardwareRecord]:
+        """
+        Fetch hardware specifications from the cloud provider.
+
+        Returns:
+            List[HardwareRecord]: A list of hardware records.
+        """
         pass
 
 class AzureHardwareDownloader(CloudHardwareDownloader):
     """
     Azure hardware downloader from SKU API.
-    https://learn.microsoft.com/en-us/rest/api/compute/resource-skus/list?view=rest-compute-2025-04-01&tabs=HTTP
+    https://learn.microsoft.com/en-us/rest/api/compute/resource-skus/
     """
 
     def __init__(self, subscription_id: str, access_token: str):
+        """
+        Initialize the Azure hardware downloader.
+
+        Args:
+            subscription_id (str): The Azure subscription ID.
+            access_token (str): The Azure access token.
+        """
         self.subscription_id = subscription_id
         self.headers = {"Authorization": f"Bearer {access_token}"}
         # Resource Skus API
@@ -28,7 +49,13 @@ class AzureHardwareDownloader(CloudHardwareDownloader):
         )
  
 
-    def fetch_hardware(self) -> List[Dict[str, Any]]:
+    def fetch_hardware(self) -> List[HardwareRecord]:
+        """
+        Fetch hardware specifications for Azure virtual machines.
+
+        Returns:
+            List[HardwareRecord]: A list of Azure hardware records.
+        """
         hardware_list = []
         sku_names: set = set()
 
@@ -118,14 +145,24 @@ class AzureHardwareDownloader(CloudHardwareDownloader):
 
 class AWSHardwareDownloader(CloudHardwareDownloader):
     """
-    AWS hardware downloader from EC2 API.
+    AWS hardware downloader using the EC2 API.
     https://docs.aws.amazon.com/AWSEC2/latest/APIReference/API_DescribeInstanceTypes.html
     """
     def __init__(self):
+        """
+        Initialize the AWS hardware downloader.
+        Sets the EC2 client to the us-east-1 region.
+        """
         # Read HW parameters only from 1 region, specs are global
         self.ec2_client = boto3.client('ec2', region_name='us-east-1')
 
-    def fetch_hardware(self) -> List[Dict[str, Any]]:
+    def fetch_hardware(self) -> List[HardwareRecord]:
+        """
+        Fetch hardware specifications for AWS EC2 instances.
+
+        Returns:
+            List[HardwareRecord]: A list of AWS hardware records.
+        """
         paginator = self.ec2_client.get_paginator('describe_instance_types')
         hardware_list = []
         # Paginate through available instances.
@@ -139,6 +176,7 @@ class AWSHardwareDownloader(CloudHardwareDownloader):
                 ebs_info = itype.get('EbsInfo', {}).get('EbsOptimizedInfo', {})
                 net_info = itype.get('NetworkInfo', {})
                 network_performance_str = net_info.get('NetworkPerformance', '')
+                # Extract network performance from "up to X Gigabit" format
                 match = re.search(r'(\d+(?:\.\d+)?)\s*Gigabit', network_performance_str, re.IGNORECASE)
                 net_mbps: Optional[float] = None
                 if match:
