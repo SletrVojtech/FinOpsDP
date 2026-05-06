@@ -1,3 +1,10 @@
+"""
+Cost Data Loader Module.
+
+This module provides the CostDataLoader class, which queries locally downloaded
+cost export files using DuckDB and pushes aggregated batches to RabbitMQ.
+"""
+
 import duckdb
 import logging
 from datetime import datetime, timedelta, timezone
@@ -10,15 +17,31 @@ log = logging.getLogger("cost_loader")
 
 class CostDataLoader:
     """
-    Uses DUCKDB in-memory querying over downloaded files and batch uploads aggregated data to RabbitMQ.
+    Uses DuckDB in-memory querying over downloaded files and batch uploads aggregated data to RabbitMQ.
     """
     def __init__(self, rmq_client, queue_name="data_ingestion"):
+        """
+        Initialize the CostDataLoader.
+
+        Args:
+            rmq_client: The RabbitMQ client instance.
+            queue_name (str, optional): The queue to publish messages to. Defaults to "data_ingestion".
+        """
         self.rmq_client = rmq_client
         self.queue_name = queue_name
         self.con = duckdb.connect(database=':memory:')
 
     def _get_normal_charges(self, export_folder_pattern: str, cutoff_date: str) -> list[dict]:
-        """Retrieve 1 day cost records"""
+        """
+        Retrieve 1-day cost records from the downloaded files.
+
+        Args:
+            export_folder_pattern (str): Glob pattern matching the downloaded CSV files.
+            cutoff_date (str): The earliest date to include in the query.
+
+        Returns:
+            list[dict]: A list of dictionary records containing daily cost data.
+        """
         query = f"""
             SELECT 
                 ProviderName,
@@ -51,7 +74,16 @@ class CostDataLoader:
         return self.con.execute(query).fetchdf().to_dict('records')
 
     def _get_multiday_charges(self, export_folder_pattern: str, cutoff_date: str) -> list[dict]:
-        """Retrieve multi-day cost records"""
+        """
+        Retrieve multi-day cost records from the downloaded files.
+
+        Args:
+            export_folder_pattern (str): Glob pattern matching the downloaded CSV files.
+            cutoff_date (str): The earliest date to include in the query.
+
+        Returns:
+            list[dict]: A list of dictionary records containing multi-day cost data.
+        """
         query = f"""
             SELECT 
                 ProviderName,
@@ -83,10 +115,17 @@ class CostDataLoader:
         """
         return self.con.execute(query).fetchdf().to_dict('records')
 
-    def _distribute_multiday_charges(self, multiday_dicts: list[dict], cutoff_date: str) -> list[dict]:
-        """Distribute multi-day charges to daily records"""
+    def _distribute_multiday_charges(self, multiday_dicts: list[dict]) -> list[dict]:
+        """
+        Distribute multi-day charges evenly across individual daily records.
+
+        Args:
+            multiday_dicts (list[dict]): A list of multi-day cost records.
+
+        Returns:
+            list[dict]: A list of distributed daily cost records.
+        """
         records = []
-        cutoff_dt = datetime.strptime(cutoff_date, '%Y-%m-%d %H:%M:%S')
         
         for row in multiday_dicts:
             start_dt = row['charge_period_start']
@@ -107,7 +146,13 @@ class CostDataLoader:
         return records
 
     def _publish_batches(self, records: list[dict], batch_size: int):
-        """Publish records to RabbitMQ in batches"""
+        """
+        Publish records to RabbitMQ in batches.
+
+        Args:
+            records (list[dict]): A list of payload dictionaries to publish.
+            batch_size (int): The number of records to include in each batch message.
+        """
         total_records = len(records)
         for i in range(0, total_records, batch_size):
             batch_records = records[i:i + batch_size]
@@ -130,7 +175,14 @@ class CostDataLoader:
         log.info(f"Sent {total_records} records to RabbitMQ in {batches} batches.")
 
     def process_and_publish(self, export_folder_pattern: str, batch_size: int = 1000, days_back: int = 7):
-        """Process and publish cost records to RabbitMQ"""
+        """
+        Process and publish cost records from downloaded files to RabbitMQ.
+
+        Args:
+            export_folder_pattern (str): Glob pattern matching the downloaded CSV files.
+            batch_size (int, optional): The number of records per RabbitMQ message. Defaults to 1000.
+            days_back (int, optional): The number of days of history to process. Defaults to 7.
+        """
         log.info(f"Running DuckDB on files: {export_folder_pattern}")
         cutoff_date = ((datetime.now(timezone.utc)) - timedelta(days=days_back)).strftime('%Y-%m-%d 00:00:00')
         
@@ -147,7 +199,7 @@ class CostDataLoader:
             for row in normal_dicts:
                 records.append(FocusCostAdapter(row).to_payload())
                 
-            records.extend(self._distribute_multiday_charges(multiday_dicts, cutoff_date))
+            records.extend(self._distribute_multiday_charges(multiday_dicts))
             
             if records:
                 self._publish_batches(records, batch_size)

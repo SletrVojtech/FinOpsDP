@@ -1,8 +1,18 @@
+"""
+Cost Message Module.
+
+This module defines the data structures used for passing cost information
+from the cost collector to the ingestion queue.
+"""
+
 from pydantic import BaseModel, Field
 from typing import Dict, Optional, List
 from datetime import datetime
 
 class CostPayload(BaseModel):
+    """
+    Represents a single cost record matching the FOCUS 1.2 specification format.
+    """
     # Entity identification
     provider: str
     billing_id: str
@@ -31,5 +41,7 @@ class CostPayload(BaseModel):
     
 
 class CostBatchPayload(BaseModel):
-    """Batch Message for RabbitMQ"""
+    """
+    Batch Message for RabbitMQ.
+    """
     records: List[CostPayload]

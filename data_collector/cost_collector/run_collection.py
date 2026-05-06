@@ -1,30 +1,54 @@
+"""
+Cost Collection Module.
+
+This module is responsible for orchestrating the collection of cloud provider
+cost exports. It downloads billing and cost management datasets for AWS and Azure.
+"""
+
 import yaml
-import sys
 import logging
 import os
+import shutil
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from c7n_org.cli import init, accounts_iterator
 from cost_collector.downloaders import run_aws_worker_process, run_azure_worker_process
 from rabbitmq.connector import RabbitMQClient
 from cost_collector.data_loader import CostDataLoader
-
+from registry import register_collector
 
 log = logging.getLogger("cost_export_downloader")
 
-from registry import register_collector
-
 @register_collector("costs", help_text="Download CostExports from Cloud Billing API and send to RMQ")
-def run_cost_downloads(output_dir="/tmp/cost_exports"):
-    # Load AWS accounts
-    accounts_config, _, _ = init(
-        config='.conf/accounts.yml',
-        use=None, debug=False, verbose=False,
-        accounts=None, tags=None, policies=None
-    )
-    
-    # Load Cost Export definitions
-    with open('.conf/cost_exports.yml', 'r') as f:
-        cost_config = yaml.safe_load(f)
+def run_cost_downloads(output_dir="/tmp/cost_exports", days_back=7):
+    """
+    Download CostExports from Cloud Billing API and send them to RabbitMQ.
+
+    This function reads account and cost export configurations, concurrently
+    downloads the required cost exports using a process pool, and publishes
+    the downloaded files to the data ingestion queue.
+
+    Args:
+        output_dir (str, optional): The directory where downloaded exports will be temporarily stored. Defaults to "/tmp/cost_exports".
+        days_back (int, optional): The number of days of history to process from the exports. Defaults to 7.
+
+    Raises:
+        FileNotFoundError: If the required configuration files are not found.
+        RuntimeError: If any of the download tasks fail.
+    """
+    try:
+        # Load AWS accounts
+        accounts_config, _, _ = init(
+            config='.conf/accounts.yml',
+            use=None, debug=False, verbose=False,
+            accounts=None, tags=None, policies=None
+        )
+        
+        # Load Cost Export definitions
+        with open('.conf/cost_exports.yml', 'r') as f:
+            cost_config = yaml.safe_load(f)
+    except FileNotFoundError as e:
+        log.error(f"Configuration file missing: {e}")
+        raise FileNotFoundError(f"Missing configuration file: {e}")
 
     # Map Account ID to export name 
     aws_exports_map = {
@@ -102,13 +126,12 @@ def run_cost_downloads(output_dir="/tmp/cost_exports"):
                 if os.path.isdir(folder_path):
                     # include csv and csv.gz
                     file_pattern = os.path.join(folder_path, "*.csv*")
-                    loader.process_and_publish(file_pattern, days_back=30)
-                    #shutil.rmtree(folder_path)
+                    loader.process_and_publish(file_pattern, days_back=days_back)
+                    shutil.rmtree(folder_path)
         log.info("Finished loading files into RabbitMQ.")
 
-
     if not success:
-        sys.exit(1)
+        raise RuntimeError("One or more download tasks failed.")
 
 if __name__ == "__main__":
     run_cost_downloads()
