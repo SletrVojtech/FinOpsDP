@@ -1,10 +1,33 @@
+"""
+Cost Query Module.
+
+Provides SQL queries against the ``Costs`` table, using a shared
+``SubTree / FilteredEntities`` recursive CTE to scope results by entity
+hierarchy and tag filters. Supports gap-filled daily totals, category
+breakdowns, and tag-value breakdowns.
+"""
+
 import calendar
 from datetime import date, timedelta
 import json
 
 
 def _build_scope_cte(scope_id: int, tags_filter: dict):
-    """Returns (sql_fragment, params) for the shared SubTree/FilteredEntities CTE."""
+    """Build the shared ``SubTree / FilteredEntities`` CTE SQL fragment.
+
+    Generates a recursive CTE that walks the entity hierarchy downward
+    from ``scope_id`` and then filters descendant IDs by the supplied
+    tag key-value pairs.
+
+    Args:
+        scope_id (int): Root entity ID for the subtree.
+        tags_filter (dict): Tag key-value constraints. Empty dict means
+            no additional tag filtering.
+
+    Returns:
+        tuple[str, list]: A 2-tuple of ``(sql_fragment, params)`` ready
+            for use as a prefix CTE in a larger query.
+    """
     tags_filter = tags_filter or {}
     params = [scope_id, scope_id]
     sql = """
@@ -25,15 +48,36 @@ def _build_scope_cte(scope_id: int, tags_filter: dict):
     return sql, params
 
 
-def get_daily_costs(cursor, scope_id: int = 0, tags_filter: dict = None, target_date: date = None,
-                    start_date: date = None, end_date: date = None, exchange_rate: float = 1.0):
+def get_daily_costs(
+    cursor,
+    scope_id: int = 0,
+    tags_filter: dict = None,
+    target_date: date = None,
+    start_date: date = None,
+    end_date: date = None,
+    exchange_rate: float = 1.0,
+) -> list:
+    """Return gap-filled daily costs for a scoped entity subtree.
+
+    Uses TimescaleDB ``time_bucket_gapfill`` to ensure every day in the
+    window appears in the result even if no billing records exist.
+    Based on the FOCUS cost allocation model.
+
+    Args:
+        cursor: Active database cursor.
+        scope_id (int, optional): Root entity ID. Defaults to 0.
+        tags_filter (dict, optional): Tag key-value constraints.
+        target_date (date, optional): When provided and ``start_date`` is
+            absent, the window defaults to the full calendar month
+            containing ``target_date``.
+        start_date (date, optional): Explicit window start.
+        end_date (date, optional): Explicit window end (exclusive).
+        exchange_rate (float, optional): USD-to-EUR multiplier.
+            Defaults to 1.0.
+
+    Returns:
+        list: Dicts with keys ``date`` (ISO string) and ``cost`` (float).
     """
-        Returns daily and accumulative data for given scope and tags for a time window.
-        Based on https://focus.finops.org/use-cases/#forecast-amortized-costs-month-over-month-based-on-historical-trends-2
-        but for daily aggregation and already scoped set of IDs.
-        Uses TimescaleDB gap-filling function to ensure continuity of data.
-    """
-    # Backwards compability to get the current month
     if target_date and not start_date:
         start_date = target_date.replace(day=1)
         _, last_day = calendar.monthrange(start_date.year, start_date.month)
@@ -73,9 +117,28 @@ def get_daily_costs(cursor, scope_id: int = 0, tags_filter: dict = None, target_
     return [{"date": r[0].isoformat(), "cost": float(r[1])} for r in cursor.fetchall()]
 
 
-def get_daily_costs_by_category(cursor, scope_id: int = 0, tags_filter: dict = None,
-                                start_date: date = None, end_date: date = None, exchange_rate: float = 1.0):
-    """Daily costs grouped by ServiceCategory. No gap-filling."""
+def get_daily_costs_by_category(
+    cursor,
+    scope_id: int = 0,
+    tags_filter: dict = None,
+    start_date: date = None,
+    end_date: date = None,
+    exchange_rate: float = 1.0,
+) -> list:
+    """Return daily costs grouped by ``ServiceCategory``, without gap-filling.
+
+    Args:
+        cursor: Active database cursor.
+        scope_id (int, optional): Root entity ID. Defaults to 0.
+        tags_filter (dict, optional): Tag key-value constraints.
+        start_date (date, optional): Window start; defaults to first of
+            current month.
+        end_date (date, optional): Window end (exclusive).
+        exchange_rate (float, optional): USD-to-EUR multiplier.
+
+    Returns:
+        list: Dicts with keys ``date``, ``category``, and ``cost``.
+    """
     if not start_date or not end_date:
         start_date = date.today().replace(day=1)
         _, last_day = calendar.monthrange(start_date.year, start_date.month)
@@ -98,11 +161,31 @@ def get_daily_costs_by_category(cursor, scope_id: int = 0, tags_filter: dict = N
             for r in cursor.fetchall()]
 
 
-def get_daily_costs_by_tag_key(cursor, scope_id: int = 0, tags_filter: dict = None,
-                               tag_key: str = None,
-                               start_date: date = None, end_date: date = None, exchange_rate: float = 1.0):
-    """Daily costs grouped by values of a given tag key.
-    Resources without the tag are grouped as 'Unrecognized'.
+def get_daily_costs_by_tag_key(
+    cursor,
+    scope_id: int = 0,
+    tags_filter: dict = None,
+    tag_key: str = None,
+    start_date: date = None,
+    end_date: date = None,
+    exchange_rate: float = 1.0,
+) -> list:
+    """Return daily costs grouped by values of a given tag key.
+
+    Resources that lack the tag are grouped as ``'Unrecognized'``.
+    Returns an empty list when ``tag_key`` is ``None``.
+
+    Args:
+        cursor: Active database cursor.
+        scope_id (int, optional): Root entity ID. Defaults to 0.
+        tags_filter (dict, optional): Tag key-value constraints.
+        tag_key (str, optional): Tag key to group by.
+        start_date (date, optional): Window start.
+        end_date (date, optional): Window end (exclusive).
+        exchange_rate (float, optional): USD-to-EUR multiplier.
+
+    Returns:
+        list: Dicts with keys ``date``, ``tag_value``, and ``cost``.
     """
     if not start_date or not end_date:
         start_date = date.today().replace(day=1)
@@ -130,7 +213,20 @@ def get_daily_costs_by_tag_key(cursor, scope_id: int = 0, tags_filter: dict = No
             for r in cursor.fetchall()]
 
 
-def get_namespaces_for_tags(cursor, active_tags: dict):
+def get_namespaces_for_tags(cursor, active_tags: dict) -> list:
+    """Return Kubernetes namespace entities matching the given tags.
+
+    Queries the ``Entities`` table for rows with
+    ``ResourceType = 'kubernetes_namespace'`` and all tags in
+    ``active_tags``.
+
+    Args:
+        cursor: Active database cursor.
+        active_tags (dict): Tag key-value constraints.
+
+    Returns:
+        list: Raw DB rows of ``(Id, ParentId, ResourceName)``.
+    """
     query_ns = "SELECT Id, ParentId, ResourceName FROM Entities WHERE ResourceType = 'kubernetes_namespace'"
     params_ns = []
     for k, v in active_tags.items():
@@ -141,7 +237,17 @@ def get_namespaces_for_tags(cursor, active_tags: dict):
 
 
 def get_max_date(cursor, start_date: date, end_date: date):
-    """Returns the latest available date of the costs for the given time window."""
+    """Return the latest billing date within a given time window.
+
+    Args:
+        cursor: Active database cursor.
+        start_date (date): Window start (inclusive).
+        end_date (date): Window end (exclusive).
+
+    Returns:
+        tuple: A 1-tuple ``(max_date,)`` where ``max_date`` is a
+            ``date`` object, or ``None`` when no records exist.
+    """
     cursor.execute("""
         SELECT MAX(ChargePeriodStart)::date 
         FROM Costs 

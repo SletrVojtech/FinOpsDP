@@ -1,8 +1,31 @@
+"""
+Downsizing CRUD Module.
+
+Provides SQL queries for the VM rightsizing pipeline: hardware metadata
+retrieval, performance telemetry aggregation, catalogue pricing lookup,
+and candidate instance search.
+"""
+
 from typing import List, Dict, Any, Optional
 
 
 def get_instance_metadata(db_cursor, resource_id: int) -> Optional[Dict[str, Any]]:
-    """Return current metadata about given instance, including instance class constraints."""
+    """Fetch hardware metadata and class constraints for a VM instance entity.
+
+    Joins the ``Entities`` table with ``HardwareCatalog`` using the
+    ``instance_type`` JSON extra field. Returns ``None`` when the entity
+    does not exist.
+
+    Args:
+        db_cursor: Active database cursor.
+        resource_id (int): Primary key of the VM entity to look up.
+
+    Returns:
+        dict: Metadata dict with keys ``provider``, ``region``, ``os``,
+            ``instance_type``, ``vcpu``, ``memory_gb``, ``architecture``,
+            ``is_gpu``, ``is_confidential``, ``has_local_storage``, and
+            ``supports_premium_storage``. Returns ``None`` if not found.
+    """
     query = """
         SELECT
             e.providername,
@@ -42,7 +65,21 @@ def get_instance_metadata(db_cursor, resource_id: int) -> Optional[Dict[str, Any
 
 
 def _resolve_data_source(db_cursor, analysis_days: int) -> tuple:
-    """Returns (table_name, value_column) based on DataDictionary lookup."""
+    """Select the best metrics table for the given analysis window.
+
+    Prefers Continuous Aggregate (CAGG) tables that cover at least
+    ``analysis_days`` days to raw ``Metrics`` for performance.
+
+    Args:
+        db_cursor: Active database cursor.
+        analysis_days (int): Number of historical days in the analysis window.
+
+    Returns:
+        tuple: 3-tuple of ``(table_name, val_col, time_col)`` where
+            ``val_col`` is ``max_value`` for CAGGs or ``value`` for raw,
+            and ``time_col`` is ``bucket`` for CAGGs or ``timestamp``
+            for raw.
+    """
     # Defaults
     table = "metrics"
     val_col = "value"
@@ -60,7 +97,22 @@ def _resolve_data_source(db_cursor, analysis_days: int) -> tuple:
 
 
 def get_telemetry(db_cursor, resource_id: int, analysis_days: int) -> Dict[str, Optional[float]]:
-    """Queries for percentiles and aggregated max values."""
+    """Return aggregated performance telemetry for a VM over the analysis window.
+
+    Queries CPU P95, max RAM usage, max disk IOPS, and max network throughput
+    from the appropriate metrics table. All values may be ``None`` when the
+    VM has not reported the corresponding metric.
+
+    Args:
+        db_cursor: Active database cursor.
+        resource_id (int): Primary key of the VM entity.
+        analysis_days (int): Number of days to look back.
+
+    Returns:
+        dict: Dict with keys ``cpu_p95``, ``ram_max``, ``disk_read_max``,
+            ``disk_write_max``, ``net_in_max``, ``net_out_max``.
+            Each value is a float or ``None``.
+    """
     table, val_col, time_col  = _resolve_data_source(db_cursor, analysis_days)
 
     query = f"""
@@ -90,8 +142,26 @@ def get_telemetry(db_cursor, resource_id: int, analysis_days: int) -> Dict[str, 
         "net_in_max": row[4], "net_out_max": row[5]
     }
 
-def get_actual_daily_cost(db_cursor, resource_id: str, analysis_days: int, exchange_rate: float = 1.0) -> float:
-    """Get the current instance spend."""
+def get_actual_daily_cost(
+    db_cursor,
+    resource_id: str,
+    analysis_days: int,
+    exchange_rate: float = 1.0,
+) -> float:
+    """Return the average daily billing cost for a VM over the analysis window.
+
+    Divides the total billed cost by ``analysis_days`` so the result is
+    directly comparable to catalogue hourly prices.
+
+    Args:
+        db_cursor: Active database cursor.
+        resource_id (str): Primary key of the VM entity.
+        analysis_days (int): Number of days to average over.
+        exchange_rate (float, optional): USD-to-EUR multiplier. Defaults to 1.0.
+
+    Returns:
+        float: Average daily cost in EUR.
+    """
     query = """
         SELECT COALESCE(SUM(billedcost * (CASE WHEN billingcurrency = 'USD' THEN %(exchange_rate)s ELSE 1.0 END)), 0.0) / %(analysis_days)s
         FROM costs
@@ -101,8 +171,27 @@ def get_actual_daily_cost(db_cursor, resource_id: str, analysis_days: int, excha
     db_cursor.execute(query, {"resource_id": resource_id, "analysis_days": analysis_days, "exchange_rate": exchange_rate})
     return db_cursor.fetchone()[0]
 
-def get_catalog_hourly_price(db_cursor, provider: str, region: str, os: str, instance_type: str, exchange_rate: float = 1.0) -> Optional[float]:
-    """Get listed price for given instance, converted to EUR."""
+def get_catalog_hourly_price(
+    db_cursor,
+    provider: str,
+    region: str,
+    os: str,
+    instance_type: str,
+    exchange_rate: float = 1.0,
+) -> Optional[float]:
+    """Return the listed hourly price for an instance type in EUR.
+
+    Args:
+        db_cursor: Active database cursor.
+        provider (str): Cloud provider name (e.g. ``"azure"``).
+        region (str): Region identifier.
+        os (str): Normalised OS name.
+        instance_type (str): Instance type string.
+        exchange_rate (float, optional): USD-to-EUR multiplier. Defaults to 1.0.
+
+    Returns:
+        float: Hourly price in EUR, or ``None`` if not found in the catalogue.
+    """
     query = """
         SELECT hourlypriceusd * %(exchange_rate)s FROM pricingcatalog
         WHERE cloud = %(provider)s AND region = %(region)s
@@ -118,24 +207,60 @@ def get_catalog_hourly_price(db_cursor, provider: str, region: str, os: str, ins
     return row[0] if row else None
 
 
-def get_suitable_candidates(db_cursor, provider: str, region: str, os: str,
-                            req_vcpu: float, req_ram: float, req_iops: float, req_net_mbps: float, 
-                            sql_like_patterns: List[str], architecture: str = 'x86_64',
-                            is_gpu: bool = False, is_confidential: bool = False,
-                            has_local_storage: bool = False, current_supports_premium: bool = False,
-                            exchange_rate: float = 1.0
+def get_suitable_candidates(
+    db_cursor,
+    provider: str,
+    region: str,
+    os: str,
+    req_vcpu: float,
+    req_ram: float,
+    req_iops: float,
+    req_net_mbps: float,
+    sql_like_patterns: List[str],
+    architecture: str = 'x86_64',
+    is_gpu: bool = False,
+    is_confidential: bool = False,
+    has_local_storage: bool = False,
+    current_supports_premium: bool = False,
+    exchange_rate: float = 1.0,
 ) -> List[Dict[str, Any]]:
-    """
-    Query for viable downsizing candidates.
+    """Query the hardware catalogue for cheaper instance types meeting all constraints.
 
-    Hard constraints in SQL:
-      - isgpu
+    Hard constraints are applied directly in SQL:
+    - ``is_gpu`` (must match exactly)
+    - vCPU, RAM, IOPS, throughput (minimum thresholds)
+    - Exclusion patterns via ``NOT LIKE ALL``
 
-    Other constraints are checked in code and added as warnings:
-      - architecture
-      - isconfidential
-      - haslocalstorage
-      - supportspremiumstorage
+    Soft constraints (architecture, confidential, local storage, premium
+    storage) are checked in Python and surfaced as ``warnings`` on each
+    candidate so the service layer can present them to the user.
+
+    Args:
+        db_cursor: Active database cursor.
+        provider (str): Cloud provider (e.g. ``"azure"``).
+        region (str): Region identifier.
+        os (str): Normalised OS name.
+        req_vcpu (float): Minimum required vCPU count.
+        req_ram (float): Minimum required RAM in GB.
+        req_iops (float): Minimum required IOPS (0 means no constraint).
+        req_net_mbps (float): Minimum required network throughput in Mbps.
+        sql_like_patterns (list[str]): SQL ``LIKE`` patterns for exclusion
+            (``%`` wildcards, not glob ``*``).
+        architecture (str, optional): Preferred CPU architecture.
+            Defaults to ``'x86_64'``.
+        is_gpu (bool, optional): Whether a GPU instance is required.
+        is_confidential (bool, optional): Whether confidential compute is needed.
+        has_local_storage (bool, optional): Whether local NVMe/SSD is needed.
+        current_supports_premium (bool, optional): Whether the current instance
+            supports premium storage.
+        exchange_rate (float, optional): USD-to-EUR multiplier.
+
+    Returns:
+        list: Candidate dicts ordered by ascending price, each with keys
+            ``instance_type``, ``vcpu``, ``memory_gb``, ``hourly_price_usd``,
+            ``architecture``, ``is_gpu``, ``is_confidential``,
+            ``has_local_storage``, ``supports_premium_storage``, and
+            ``warnings`` (list of user-visible constraint violation strings).
     """
     filter_clause = ""
     if sql_like_patterns:

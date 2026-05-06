@@ -1,8 +1,33 @@
+"""
+Downsizing and Tag Filtering Rules Module.
+
+Provides database operations for two rule types stored in the ``Rules``
+table:
+
+- ``downsizing_exclusion`` — scope-and-tag-scoped lists of VM instance
+  type glob patterns to exclude from rightsizing recommendations.
+- ``tag_filter`` — global patterns used to suppress noisy tag keys from
+  the scope-explorer UI.
+"""
+
 import json
 from typing import List, Dict
 
 def get_exact_excluded_patterns(db_cursor, scope_id: int, tags: Dict[str, str]) -> List[str]:
-    """Retrieve the exact excluded VM patterns configured for a given scope and tags."""
+    """Return the excluded VM patterns configured for an exact scope and tag combination.
+
+    Performs an exact JSONB equality match on both sides (``@>`` and ``<@``)
+    so only rules whose tag set is identical to ``tags`` are returned.
+
+    Args:
+        db_cursor: Active database cursor.
+        scope_id (int): The scope entity ID to filter by.
+        tags (dict): Exact tag key-value pairs to match.
+
+    Returns:
+        list[str]: List of glob patterns (e.g. ``["Standard_D*"]``),
+            or an empty list if no rule exists.
+    """
     query = """
         SELECT ExcludedPatterns FROM Rules
         WHERE ScopeId = %(scope_id)s 
@@ -20,7 +45,16 @@ def get_exact_excluded_patterns(db_cursor, scope_id: int, tags: Dict[str, str]) 
 
 
 def get_entity_excluded_patterns(db_cursor, scope_id: int, entity_tags: Dict[str, str]) -> List[str]:
-    """Retrieve the union of all excluded VM patterns applicable to the entity's tags in the given scope."""
+    """Return all excluded VM patterns applicable to an entity's tags in the given scope.
+
+    Args:
+        db_cursor: Active database cursor.
+        scope_id (int): The scope entity ID to filter by.
+        entity_tags (dict): The full tag set of the entity being evaluated.
+
+    Returns:
+        list[str]: Deduplicated list of glob patterns from all matching rules.
+    """
     query = """
         SELECT ExcludedPatterns FROM Rules
         WHERE ScopeId = %(scope_id)s
@@ -42,7 +76,17 @@ def get_entity_excluded_patterns(db_cursor, scope_id: int, entity_tags: Dict[str
 
 
 def set_excluded_patterns(db_cursor, scope_id: int, tags: Dict[str, str], excluded_patterns: List[str]):
-    """Set the excluded VM patterns for a given scope and tags."""
+    """Upsert the excluded VM patterns for a given scope and exact tag combination.
+
+    Inserts a new rule or updates the existing one for the
+    (``scope_id``, ``tags``) pair using ``ON CONFLICT … DO UPDATE``.
+
+    Args:
+        db_cursor: Active database cursor.
+        scope_id (int): The scope entity ID.
+        tags (dict): Exact tag key-value pairs identifying the rule.
+        excluded_patterns (list[str]): New list of glob patterns to store.
+    """
     # Ensure excluded_patterns is a valid JSON array for the JSONB column
     patterns_json = json.dumps(excluded_patterns)
     tags_json = json.dumps(tags)
@@ -60,7 +104,15 @@ def set_excluded_patterns(db_cursor, scope_id: int, tags: Dict[str, str], exclud
     })
 
 def get_tag_filtering_rules(db_cursor) -> List[Dict]:
-    """Retrieve all tag filtering rules globally."""
+    """Return all global tag-filter rules.
+
+    Args:
+        db_cursor: Active database cursor.
+
+    Returns:
+        list: Dicts with keys ``id`` and ``pattern``, ordered by
+            most-recently-created first.
+    """
     query = """
         SELECT Id, ExcludedPatterns FROM Rules
         WHERE RuleType = 'tag_filter'
@@ -78,7 +130,14 @@ def get_tag_filtering_rules(db_cursor) -> List[Dict]:
     return rules
 
 def add_tag_filtering_rule(db_cursor, pattern: str):
-    """Add a new global tag filter rule."""
+    """Insert a new global tag-filter rule.
+
+    Args:
+        db_cursor: Active database cursor.
+        pattern (str): Glob pattern of the tag key to suppress
+            (e.g. ``"aws:*"`` or ``"eks:*"``). The pattern is stored
+            as a one-element JSONB array.
+    """
     query = """
         INSERT INTO Rules (ScopeId, Tags, ExcludedPatterns, RuleType)
         VALUES (0, '{}'::jsonb, %(patterns_json)s::jsonb, 'tag_filter');
@@ -88,5 +147,10 @@ def add_tag_filtering_rule(db_cursor, pattern: str):
     })
 
 def delete_rule(db_cursor, rule_id: int):
-    """Delete a rule by its ID."""
+    """Delete a rule record by its primary key.
+
+    Args:
+        db_cursor: Active database cursor.
+        rule_id (int): Primary key of the rule to delete.
+    """
     db_cursor.execute("DELETE FROM Rules WHERE Id = %(rule_id)s", {"rule_id": rule_id})

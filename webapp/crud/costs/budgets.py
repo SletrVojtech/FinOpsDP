@@ -1,9 +1,27 @@
+"""
+Budget Management Module.
+
+Provides CRUD operations for monthly cost budgets. Budgets are keyed
+by ``(ScopeId, Tags, PeriodMonth)`` and support lookups that return
+the latest budget at or before the target month.
+"""
+
 import json
 from datetime import date
 
 
 def get_budget(cursor, scope_id: int, tags_filter: dict, target_month: date) -> float:
-    """Returns the newest existing budget for given scope and tags."""
+    """Return the most recent budget limit for a scope, at or before the target month.
+
+    Args:
+        cursor: Active database cursor.
+        scope_id (int): Scope entity ID (0 for global).
+        tags_filter (dict): Tag key-value filter identifying the budget.
+        target_month (date): Target month; any date within the month works.
+
+    Returns:
+        float: Budget limit in EUR, or ``None`` if no budget is configured.
+    """
     tags_json = json.dumps(tags_filter) if tags_filter else '{}'
     scope_id = scope_id if scope_id is not None else 0
     
@@ -21,7 +39,18 @@ def get_budget(cursor, scope_id: int, tags_filter: dict, target_month: date) -> 
 
 
 def set_budget(cursor, scope_id: int, tags_filter: dict, target_month: date, amount: float):
-    """UPSERTS a new budget for given scope and tags for the EXACT month."""
+    """Upsert a monthly budget limit for a scope.
+
+    Inserts a new record or updates the existing one for the exact
+    ``(scope_id, tags_filter, target_month)`` key.
+
+    Args:
+        cursor: Active database cursor.
+        scope_id (int): Scope entity ID (0 for global).
+        tags_filter (dict): Tag key-value filter identifying the budget.
+        target_month (date): The exact month the budget applies to.
+        amount (float): Budget limit in EUR.
+    """
     tags_json = json.dumps(tags_filter) if tags_filter else '{}'
     scope_id = scope_id if scope_id is not None else 0
 
@@ -45,8 +74,16 @@ def set_budget(cursor, scope_id: int, tags_filter: dict, target_month: date, amo
         """, (scope_id, tags_json, amount, target_month))
 
 
-def get_active_budgets_scopes(cursor, target_month: date):
-    """Returns unique (scope_id, tags) combinations that have active budgets."""
+def get_active_budgets_scopes(cursor, target_month: date) -> list:
+    """Return distinct (scope_id, tags) combinations with an active budget.
+
+    Args:
+        cursor: Active database cursor.
+        target_month (date): Include budgets valid at or before this month.
+
+    Returns:
+        list: Dicts with keys ``scope_id`` and ``tags``.
+    """
     query = """
         SELECT DISTINCT ScopeId, Tags 
         FROM Budgets 

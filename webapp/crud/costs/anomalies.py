@@ -1,9 +1,29 @@
+"""
+Cost Anomalies Module.
+
+Provides CRUD operations for the ``CostAnomalies`` table. Records are
+keyed by ``(ScopeId, Tags, AnomalyDate, AnomalyType)`` and upserted
+on conflict so re-runs of the anomaly job are idempotent.
+"""
+
 import json
 from datetime import date
 
 
 def save_anomalies(cursor, scope_id: int, tags_filter: dict, anomalies_data: list):
-    """Saves detected anomalies to CostAnomalies table."""
+    """Saves a batch of detected anomalies to the ``CostAnomalies`` table.
+
+    Uses ``ON CONFLICT … DO UPDATE`` so re-running the anomaly job is
+    safe and always reflects the latest values.
+
+    Args:
+        cursor: Active database cursor.
+        scope_id (int): Scope entity ID (0 for global).
+        tags_filter (dict): Tag key-value filter identifying the scope.
+        anomalies_data (list): Anomaly dicts, each containing at minimum
+            ``date``, ``actual``, ``predicted``, ``threshold``, and
+            ``delta`` keys, plus an optional ``type`` key.
+    """
     tags_json = json.dumps(tags_filter) if tags_filter else '{}'
     scope_id = scope_id if scope_id is not None else 0
     
@@ -22,9 +42,27 @@ def save_anomalies(cursor, scope_id: int, tags_filter: dict, anomalies_data: lis
         """, (scope_id, tags_json, anomaly["date"], anomaly_type, anomaly["actual"], anomaly["predicted"], anomaly["threshold"], anomaly["delta"]))
 
 
-def get_anomalies_for_month(cursor, scope_id: int, tags_filter: dict,
-                            start_date: date, end_date: date) -> dict:
-    """Returns persisted CostAnomalies for the given period."""
+def get_anomalies_for_month(
+    cursor,
+    scope_id: int,
+    tags_filter: dict,
+    start_date: date,
+    end_date: date,
+) -> dict:
+    """Return persisted cost anomalies for a scope within a date range.
+
+    Args:
+        cursor: Active database cursor.
+        scope_id (int): Scope entity ID (0 for global).
+        tags_filter (dict): Tag key-value filter.
+        start_date (date): Window start (inclusive).
+        end_date (date): Window end (exclusive).
+
+    Returns:
+        dict: Mapping of ISO date strings to anomaly detail dicts with
+            keys ``actual``, ``predicted``, ``threshold``, ``delta``,
+            ``type``, and ``is_seen``.
+    """
     tags_json = json.dumps(tags_filter) if tags_filter else '{}'
     scope_id = scope_id if scope_id is not None else 0
     cursor.execute("""
@@ -44,8 +82,26 @@ def get_anomalies_for_month(cursor, scope_id: int, tags_filter: dict,
     }
 
 
-def get_dashboard_anomalies(cursor, start_date: date, end_date: date, only_unseen: bool = False):
-    """Returns anomalies (both cost and budget) for the dashboard across all scopes."""
+def get_dashboard_anomalies(
+    cursor,
+    start_date: date,
+    end_date: date,
+    only_unseen: bool = False,
+) -> list:
+    """Return anomalies across all scopes for the global dashboard view.
+
+    Args:
+        cursor: Active database cursor.
+        start_date (date): Window start (inclusive).
+        end_date (date): Window end (inclusive).
+        only_unseen (bool, optional): When True, only unseen anomalies
+            are returned. Defaults to False.
+
+    Returns:
+        list: Anomaly dicts with keys ``id``, ``scope_id``, ``scope_name``,
+            ``tags``, ``date``, ``type``, ``actual``, ``predicted``,
+            ``threshold``, ``delta``, ``is_seen``, and ``detected_at``.
+    """
     query = """
         SELECT c.Id, c.ScopeId, e.ResourceName, c.Tags, c.AnomalyDate, c.AnomalyType, 
                c.ActualCost, c.PredictedCost, c.UpperThreshold, c.Delta, c.IsSeen, c.DetectedAt
@@ -79,7 +135,12 @@ def get_dashboard_anomalies(cursor, start_date: date, end_date: date, only_unsee
 
 
 def mark_anomaly_seen(cursor, anomaly_id: int):
-    """Marks an anomaly as seen by its ID."""
+    """Mark a single anomaly as seen by its primary key.
+
+    Args:
+        cursor: Active database cursor.
+        anomaly_id (int): Primary key of the anomaly to mark.
+    """
     cursor.execute("""
         UPDATE CostAnomalies SET IsSeen = TRUE WHERE Id = %s;
     """, (anomaly_id,))

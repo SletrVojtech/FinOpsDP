@@ -1,13 +1,44 @@
+"""
+Kubernetes Metrics Allocation Module.
+
+Queries daily namespace-level CPU and memory reservation shares
+from KubeMetrics, expressed as a fraction of the cluster total.
+Used by the chargeback service to apportion cluster billing costs.
+"""
+
 from datetime import date, timedelta
 import calendar
 
 
-def get_daily_metric_allocation(cursor, cluster_id: int, metric_name: str,
-                                base_date: date = None,
-                                start_date: date = None, end_date: date = None):
-    """
-    Queries average namespace reservations per day for the given cluster,
-    returned as a fractional share of the cluster total for metric_name.
+def get_daily_metric_allocation(
+    cursor,
+    cluster_id: int,
+    metric_name: str,
+    base_date: date = None,
+    start_date: date = None,
+    end_date: date = None,
+):
+    """Return daily namespace reservation shares as a fraction of the cluster total.
+
+    Uses ``time_bucket_gapfill`` to ensure continuity. The returned share
+    is computed as each namespace's daily average divided by the cluster's
+    daily sum for the same metric.
+
+    If only ``base_date`` is provided, the window defaults to the full
+    calendar month containing that date.
+
+    Args:
+        cursor: Active database cursor.
+        cluster_id (int): Entity ID of the Kubernetes cluster.
+        metric_name (str): KubeMetrics metric name (e.g.
+            ``'cpu_requests_cores'``).
+        base_date (date, optional): Reference date used to derive the
+            window when ``start_date`` is not provided.
+        start_date (date, optional): Explicit window start.
+        end_date (date, optional): Explicit window end (exclusive).
+
+    Returns:
+        list: Raw DB rows of ``(calc_date, namespace, daily_share)``.
     """
     if base_date and not start_date:
         start_date = base_date.replace(day=1)
@@ -62,13 +93,53 @@ def get_daily_metric_allocation(cursor, cluster_id: int, metric_name: str,
     cursor.execute(query, (start_date, end_date, cluster_id, metric_name, start_date, end_date))
     return [row for row in cursor.fetchall()]
 
-def get_daily_cpu_allocation(cursor, cluster_id: int, base_date: date = None,
-                             start_date: date = None, end_date: date = None):
+def get_daily_cpu_allocation(
+    cursor,
+    cluster_id: int,
+    base_date: date = None,
+    start_date: date = None,
+    end_date: date = None,
+):
+    """Return daily CPU request share per namespace for a cluster.
+
+    Thin wrapper around :func:`get_daily_metric_allocation` for
+    the ``cpu_requests_cores`` metric.
+
+    Args:
+        cursor: Active database cursor.
+        cluster_id (int): Entity ID of the Kubernetes cluster.
+        base_date (date, optional): Reference date for implicit window.
+        start_date (date, optional): Explicit window start.
+        end_date (date, optional): Explicit window end (exclusive).
+
+    Returns:
+        list: Raw rows of ``(calc_date, namespace, daily_share)``.
+    """
     return get_daily_metric_allocation(cursor, cluster_id, 'cpu_requests_cores',
                                        base_date, start_date, end_date)
 
 
-def get_daily_memory_allocation(cursor, cluster_id: int, base_date: date = None,
-                                start_date: date = None, end_date: date = None):
+def get_daily_memory_allocation(
+    cursor,
+    cluster_id: int,
+    base_date: date = None,
+    start_date: date = None,
+    end_date: date = None,
+):
+    """Return daily memory request share per namespace for a cluster.
+
+    Thin wrapper around :func:`get_daily_metric_allocation` for
+    the ``memory_requests_bytes`` metric.
+
+    Args:
+        cursor: Active database cursor.
+        cluster_id (int): Entity ID of the Kubernetes cluster.
+        base_date (date, optional): Reference date for implicit window.
+        start_date (date, optional): Explicit window start.
+        end_date (date, optional): Explicit window end (exclusive).
+
+    Returns:
+        list: Raw rows of ``(calc_date, namespace, daily_share)``.
+    """
     return get_daily_metric_allocation(cursor, cluster_id, 'memory_requests_bytes',
                                        base_date, start_date, end_date)

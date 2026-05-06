@@ -1,3 +1,11 @@
+"""
+Forecast History Module.
+
+Stores and retrieves AutoARIMA forecast snapshots from the
+``ForecastHistory`` table, and computes forecast quality
+metrics by comparing stored projections to actual billed costs.
+"""
+
 import json
 import calendar
 from datetime import date, timedelta
@@ -6,8 +14,28 @@ from collections import defaultdict
 from crud.costs.queries import get_daily_costs
 
 
-def save_forecast_snapshot(cursor, scope_id: int, tags_filter: dict, target_month: date, amount: float, daily_forecasts: dict = None):
-    """Save the current forecast snapshot (and its daily curve) to history"""
+def save_forecast_snapshot(
+    cursor,
+    scope_id: int,
+    tags_filter: dict,
+    target_month: date,
+    amount: float,
+    daily_forecasts: dict = None,
+):
+    """Persist a daily forecast snapshot to ``ForecastHistory``.
+
+    Uses ``ON CONFLICT … DO UPDATE`` so multiple daily runs are safe and
+    the table always reflects the latest forecast for the day.
+
+    Args:
+        cursor: Active database cursor.
+        scope_id (int): Scope entity ID (0 for global).
+        tags_filter (dict): Tag key-value filter identifying the scope.
+        target_month (date): The month this forecast is for.
+        amount (float): Projected monthly total in EUR.
+        daily_forecasts (dict, optional): Mapping of ISO date strings to
+            per-day forecast values.
+    """
     tags_json = json.dumps(tags_filter) if tags_filter else '{}'
     daily_json = json.dumps(daily_forecasts) if daily_forecasts else '{}'
     scope_id = scope_id if scope_id is not None else 0
@@ -24,8 +52,24 @@ def save_forecast_snapshot(cursor, scope_id: int, tags_filter: dict, target_mont
     """, (scope_id, tags_json, target_month, today, amount, daily_json))
 
 
-def get_latest_forecast(cursor, scope_id: int, tags_filter: dict, target_month: date):
-    """Returns the most recent calculated forecast under 24 hours old."""
+def get_latest_forecast(
+    cursor,
+    scope_id: int,
+    tags_filter: dict,
+    target_month: date,
+) -> dict:
+    """Return the most recent forecast calculated within the last 24 hours.
+
+    Args:
+        cursor: Active database cursor.
+        scope_id (int): Scope entity ID.
+        tags_filter (dict): Tag key-value filter.
+        target_month (date): The month to retrieve the forecast for.
+
+    Returns:
+        dict: Dict with keys ``projected_amount`` and ``daily_forecasts``,
+            or ``None`` if no recent forecast exists.
+    """
     tags_json = json.dumps(tags_filter) if tags_filter else '{}'
     scope_id = scope_id if scope_id is not None else 0
     
@@ -49,11 +93,24 @@ def get_latest_forecast(cursor, scope_id: int, tags_filter: dict, target_month: 
     return None
 
 
-def get_forecast_quality(cursor, target_month: date):
-    """
-    Returns the forecast quality data for the given target month.
-    Fetches all ForecastHistory for each scope/tags, averages them (to represent the prediction),
-    and compares that with the latest available forecast (which acts as the actual data by the end of the month).
+def get_forecast_quality(cursor, target_month: date) -> list:
+    """Compute post-hoc forecast accuracy metrics for all scopes in a target month.
+
+    Fetches all ``ForecastHistory`` records for the month, groups them by
+    scope and tags, computes the average projection across all saved
+    snapshots (representing the prediction), and compares it to the most
+    recent snapshot (representing the final actual projection). Fetches
+    historical daily actuals for comparison plotting.
+
+    Args:
+        cursor: Active database cursor.
+        target_month (date): Any date within the month to evaluate.
+
+    Returns:
+        list: Dicts per scope with keys ``scope_id``, ``scope_name``,
+            ``tags``, ``projected_amount``, ``actual_amount``,
+            ``variance``, ``accuracy`` (0–100 %), ``daily_forecasts``,
+            and ``daily_actuals``.
     """
     query = """
         SELECT fh.ScopeId, e.ResourceName, fh.Tags, fh.ForecastDate, 

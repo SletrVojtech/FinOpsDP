@@ -1,5 +1,22 @@
+"""
+Kubernetes Resource Recommender (KRR) Module.
+
+Provides queries for reading KubeRecommendations records produced by
+Robusta's KRR scanner. Each recommendation contains optimal CPU/memory
+request values per container workload.
+"""
+
+
 def get_krr_clusters(db_cursor):
-    """Return list of clusters with available reccomendations."""
+    """Return clusters that have available KRR recommendation records.
+
+    Args:
+        db_cursor: Active database cursor.
+
+    Returns:
+        list: Dicts with keys ``cluster_id``, ``cluster_name``, and
+            ``latest_scan`` (timestamp of the most recent scan).
+    """
     query = """
         SELECT 
             e_clust.Id AS cluster_id,
@@ -16,7 +33,18 @@ def get_krr_clusters(db_cursor):
     return [dict(zip(columns, row)) for row in db_cursor.fetchall()]
 
 def get_krr_recommendations_for_cluster(db_cursor, cluster_id: int):
-    """Return set of the newest recommendations for given cluster."""
+    """Return the latest KRR recommendations for all workloads in a cluster.
+
+    Args:
+        db_cursor: Active database cursor.
+        cluster_id (int): Entity ID of the Kubernetes cluster.
+
+    Returns:
+        list: Dicts with workload recommendation details including
+            ``namespace``, ``workloadtype``, ``workloadname``,
+            ``containername``, CPU/memory current and recommended values,
+            and ``timestamp``.
+    """
     query = """
         WITH LatestScan AS (
             SELECT MAX(kr.Timestamp) as max_ts
@@ -46,7 +74,16 @@ def get_krr_recommendations_for_cluster(db_cursor, cluster_id: int):
     return [dict(zip(columns, row)) for row in db_cursor.fetchall()]
 
 def get_cluster_name(cursor, cluster_id: int):
-    """Return name of the cluster.""" 
+    """Return the display name of a Kubernetes cluster entity.
+
+    Args:
+        cursor: Active database cursor.
+        cluster_id (int): Entity ID of the cluster.
+
+    Returns:
+        str: Cluster resource name, or a fallback string containing
+            the ID when the entity is not found.
+    """
     cursor.execute("SELECT ResourceName FROM Entities WHERE Id = %s", (cluster_id,))
     cluster_row = cursor.fetchone()
     return cluster_row[0] if cluster_row else f"Neznámý cluster ({cluster_id})"

@@ -1,3 +1,11 @@
+"""
+Cost Allocation Rules Module.
+
+Manages ``AllocationRules`` records that redistribute a percentage of one
+scope's (source) daily costs to another scope (target). A 100 %
+aggregated limit per source tag set is enforced on insert.
+"""
+
 import json
 from pydantic import BaseModel
 from typing import Dict
@@ -10,7 +18,15 @@ class AllocationRequest(BaseModel):
 
 
 def get_allocation_rules(cursor):
-    """Returns all allocation rules"""
+    """Return all configured allocation rules.
+
+    Args:
+        cursor: Active database cursor.
+
+    Returns:
+        list: Dicts with keys ``id``, ``rule_name``, ``source_tags``,
+            ``target_tags``, and ``percentage``.
+    """
     cursor.execute("SELECT Id, RuleName, SourceTags, TargetTags, Percentage FROM AllocationRules ORDER BY Id;")
     rules = []
     for row in cursor.fetchall():
@@ -24,7 +40,22 @@ def get_allocation_rules(cursor):
     return rules
 
 def add_allocation_rule(cursor, rule_name: str, source_tags: dict, target_tags: dict, percentage: float):
-    """Adds a new allocation rule with a 100% limit check for the source tags."""
+    """Insert a new cost allocation rule.
+
+    Validates that the cumulative allocated percentage for ``source_tags``
+    does not exceed 100 % before inserting.
+
+    Args:
+        cursor: Active database cursor.
+        rule_name (str): Human-readable name for the rule.
+        source_tags (dict): Tags identifying the source scope.
+        target_tags (dict): Tags identifying the target scope.
+        percentage (float): Percentage of source costs to reallocate.
+
+    Raises:
+        ValueError: If adding ``percentage`` would bring the source's total
+            above 100 %.
+    """
     # Normalize tags by sorting keys to ensure consistent JSON representation
     source_tags_json = json.dumps(source_tags, sort_keys=True)
     target_tags_json = json.dumps(target_tags, sort_keys=True)
@@ -46,5 +77,10 @@ def add_allocation_rule(cursor, rule_name: str, source_tags: dict, target_tags: 
     """, (rule_name, source_tags_json, target_tags_json, percentage))
 
 def delete_allocation_rule(cursor, rule_id: int):
-    """Delete rule by ID."""
+    """Delete an allocation rule by its primary key.
+
+    Args:
+        cursor: Active database cursor.
+        rule_id (int): Primary key of the rule to remove.
+    """
     cursor.execute("DELETE FROM AllocationRules WHERE Id = %s;", (rule_id,))
