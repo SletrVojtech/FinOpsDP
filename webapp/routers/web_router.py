@@ -6,11 +6,9 @@ from db.database import get_db_cursor
 from crud import entities, metrics, costs, allocations, krr, rules
 from services.utils import humanize_memory, humanize_cpu, extract_active_tags
 from services.kube_chargeback import get_daily_namespace_allocation
-from services import cost_service as costs_service
+from services.chargeback.dashboard import calculate_chargeback_forecast
+from services.chargeback.aggregation import get_aggregated_daily_costs_k8s
 from datetime import date, timedelta
-
-
-import os
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -203,7 +201,7 @@ def cluster_cost_detail(request: Request, cluster_id: int,
         base_date = (date.today() - timedelta(days=1)).replace(day=1)
         target_month_str = base_date.strftime("%Y-%m")
 
-    forecast_data = costs_service.calculate_chargeback_forecast(
+    forecast_data = calculate_chargeback_forecast(
         cursor, cluster_id, {"cluster": cluster_name}, target_month_str
     )
     daily_cluster_costs = {
@@ -212,7 +210,7 @@ def cluster_cost_detail(request: Request, cluster_id: int,
         if daily_cost is not None
     }
 
-    daily_cluster_costs = costs_service.get_aggregated_daily_costs_k8s(cursor, cluster_id, {"cluster": cluster_name}, start_date=base_date, end_date=base_date + timedelta(days=30))
+    daily_cluster_costs = get_aggregated_daily_costs_k8s(cursor, cluster_id, {"cluster": cluster_name}, start_date=base_date, end_date=base_date + timedelta(days=30))
 
     chart_data = get_daily_namespace_allocation(cursor, cluster_id, base_date, daily_cluster_costs)
 

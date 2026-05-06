@@ -1,10 +1,9 @@
 import pandas as pd
 import pytest
 from datetime import date, datetime, timedelta
-from services.cost_service import (
-    tags_match, _make_anomaly_entry, _prepare_dates_and_cutoff, 
-    get_aggregated_daily_costs, _limit_breakdown_categories
-)
+from services.chargeback.aggregation import tags_match, get_aggregated_daily_costs
+from services.chargeback.response import _make_anomaly_entry, _limit_breakdown_categories
+from services.chargeback.dashboard import _prepare_dates_and_cutoff
 from unittest.mock import MagicMock
 
 
@@ -109,13 +108,13 @@ def test_get_aggregated_daily_costs_with_allocation(mocker):
 def test_calculate_chargeback_forecast_ml_path(mocker):
     """Verify the ML forecast path using mocked StatsForecast."""
     cursor = MagicMock()
-    mocker.patch("services.cost_service._prepare_dates_and_cutoff", 
+    mocker.patch("services.chargeback.dashboard._prepare_dates_and_cutoff", 
                  return_value=(date(2024,1,1), date(2024,1,1), date(2024,2,1), 31, date(2024,1,15), 15))
-    mocker.patch("services.cost_service.get_aggregated_daily_costs", return_value={"2024-01-01": 50.0})
+    mocker.patch("services.chargeback.dashboard.get_aggregated_daily_costs", return_value={"2024-01-01": 50.0})
     mocker.patch("crud.costs.get_budget", return_value=1000.0)
     
     # Mock StatsForecast
-    mock_sf_cls = mocker.patch("services.cost_service.StatsForecast")
+    mock_sf_cls = mocker.patch("services.chargeback.dashboard.StatsForecast")
     mock_sf = mock_sf_cls.return_value
     
     # Mock forecast result
@@ -127,7 +126,7 @@ def test_calculate_chargeback_forecast_ml_path(mocker):
     mock_sf.forecast.return_value = forecast_df
     mock_sf.forecast_fitted_values.return_value = pd.DataFrame()
     
-    from services.cost_service import calculate_chargeback_forecast
+    from services.chargeback.dashboard import calculate_chargeback_forecast
     res = calculate_chargeback_forecast(cursor, 1, {"env": "prod"}, "2024-01")
     
     assert res["budget"] == 1000.0
@@ -137,17 +136,17 @@ def test_calculate_chargeback_forecast_ml_path(mocker):
 def test_calculate_chargeback_forecast_sma_fallback(mocker):
     """Verify fallback to 15-day Simple Moving Average when ML model fails."""
     cursor = MagicMock()
-    mocker.patch("services.cost_service._prepare_dates_and_cutoff", 
+    mocker.patch("services.chargeback.dashboard._prepare_dates_and_cutoff", 
                  return_value=(date(2024,1,1), date(2024,1,1), date(2024,2,1), 31, date(2024,1,15), 15))
     
     # Recent history: 15 days of $100
     history = { (date(2024,1,15) - timedelta(days=i)).isoformat(): 100.0 for i in range(15) }
-    mocker.patch("services.cost_service.get_aggregated_daily_costs", return_value=history)
+    mocker.patch("services.chargeback.dashboard.get_aggregated_daily_costs", return_value=history)
     
     # Force StatsForecast to fail
-    mocker.patch("services.cost_service.StatsForecast", side_effect=Exception("ML Error"))
+    mocker.patch("services.chargeback.dashboard.StatsForecast", side_effect=Exception("ML Error"))
     
-    from services.cost_service import calculate_chargeback_forecast
+    from services.chargeback.dashboard import calculate_chargeback_forecast
     res = calculate_chargeback_forecast(cursor, 1, {"env": "prod"}, "2024-01")
     
     # Assert

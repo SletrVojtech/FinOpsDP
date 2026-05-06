@@ -17,7 +17,11 @@ def test_get_telemetry(mock_cursor):
     # Mocking 6 resulting columns
     mock_cursor.fetchone.return_value = (10.5, 2048.0, 100.0, 50.0, 1000.0, 500.0)
     
-    telemetry = get_telemetry(mock_cursor, 123, 14)
+    # Force the data-source resolver to return the plain metrics table defaults
+    # so the generated query text is deterministic regardless of DataDictionary state.
+    from unittest.mock import patch
+    with patch("crud.downsizing._resolve_data_source", return_value=("metrics", "value", "timestamp")):
+        telemetry = get_telemetry(mock_cursor, 123, 14)
     
     assert telemetry["cpu_p95"] == 10.5
     assert telemetry["ram_max"] == 2048.0

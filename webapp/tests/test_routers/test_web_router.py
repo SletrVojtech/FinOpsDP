@@ -45,7 +45,7 @@ def test_cluster_cost_detail_json(client, mock_cursor, override_db, mocker):
     mock_cursor.fetchone.return_value = ["MyCluster"]
     
     # Mocking services
-    mocker.patch("routers.chargeback.web.costs_service.calculate_chargeback_forecast", return_value={
+    mocker.patch("routers.chargeback.web.calculate_chargeback_forecast", return_value={
         "labels": ["2026-03-01"],
         "actual_daily": [10.0]
     })

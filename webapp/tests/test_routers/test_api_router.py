@@ -26,7 +26,7 @@ def test_get_roots(client, mock_cursor, override_db, mocker):
 def test_get_chargeback_data(client, mock_cursor, override_db, mocker):
     """Test /api/v1/costs/chargeback endpoint."""
     # Mocking cost_service.get_chargeback_dashboard_data
-    mock_get_data = mocker.patch("services.cost_service.get_chargeback_dashboard_data")
+    mock_get_data = mocker.patch("routers.chargeback.api.get_chargeback_dashboard_data")
     mock_get_data.return_value = {
         "month": "2026-03", 
         "projected_total": 500.0,

@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, Query, Request, HTTPException, APIRouter, Depends
-from services import cost_service
+from services.chargeback.dashboard import get_chargeback_dashboard_data
 from services.utils import extract_active_tags
 from datetime import date
 from pydantic import BaseModel
@@ -64,7 +64,7 @@ def api_get_chargeback_data(
     
     active_tags = extract_active_tags(request)
     
-    data = cost_service.get_chargeback_dashboard_data(
+    data = get_chargeback_dashboard_data(
         cursor, scope_id, active_tags, target_month, group_by_tag
     )
     

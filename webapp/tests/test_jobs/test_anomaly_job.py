@@ -6,7 +6,7 @@ from datetime import date
 @patch("jobs.fbad_worker.anomaly_job.get_db_cursor")
 @patch("jobs.fbad_worker.anomaly_job.costs_crud.get_active_budgets_scopes")
 @patch("jobs.fbad_worker.anomaly_job.ForecastModel")
-@patch("jobs.fbad_worker.anomaly_job.cost_service.get_aggregated_daily_costs")
+@patch("jobs.fbad_worker.anomaly_job.get_aggregated_daily_costs")
 @patch("jobs.fbad_worker.anomaly_job.costs_crud.save_forecast_snapshot")
 @patch("jobs.fbad_worker.anomaly_job.costs_crud.save_anomalies")
 @patch("jobs.fbad_worker.anomaly_job.costs_crud.get_max_date")
