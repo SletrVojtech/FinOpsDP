@@ -1,33 +1,54 @@
+"""
+Anomaly Detection Job Module.
+
+This module provides the run_anomaly_job function, which orchestrates the
+Forecast-Based Anomaly Detection (FBAD) process. It identifies scopes with 
+active budgets, generates cost forecasts using AutoARIMA, and detects 
+anomalies (deviations from historical trends or budget crossings).
+"""
+
 import os
 import sys
 import logging
 import calendar
 from datetime import date, timedelta, datetime
+from typing import List, Dict, Any, Optional
 
 from db.database import get_db_cursor
 from crud import costs as costs_crud
-from services import cost_service
+from services.chargeback.aggregation import get_aggregated_daily_costs
 from jobs.fbad_worker.forecast_model import ForecastModel
 
+# Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 def run_anomaly_job():
-    """Run the Forecast-Based Anomaly Detection job"""
+    """
+    Orchestrates the Forecast-Based Anomaly Detection (FBAD) process.
+    
+    This function performs the following steps:
+    - Identifies active budget scopes.
+    - Retrieves historical cost data for each scope.
+    - Uses AutoARIMA to detect anomalies and forecast future costs.
+    - Evaluates if the projected total exceeds the budget.
+    - Saves forecasts and detected anomalies back to the database.
+    """
     logger.info("Starting FBAD worker")
     
-    # Initialize DB connection
+    # Initialize DB connection via generator
     cursor_generator = get_db_cursor()
     cursor = next(cursor_generator)
     
     try:
+        # Define time windows
         today = date.today()
-        base_date = today.replace(day=1)
+        base_date = today.replace(day=1)  # Start of current month
         start_date = base_date
         _, last_day = calendar.monthrange(start_date.year, start_date.month)
         end_date = start_date + timedelta(days=last_day)
         
-        # Pull 35 days prior + current month
+        # Pull 35 days of history for baseline + current month
         history_start = start_date - timedelta(days=35)
         
         # Identify active scopes with a budget
@@ -41,21 +62,19 @@ def run_anomaly_job():
         # Initialize Forecast Model
         model = ForecastModel(season_length=7, min_data_points=14)
         
-        # Determine actual cutoff date
+        # Determine actual data cutoff date (latest record in DB)
         max_date_row = costs_crud.get_max_date(cursor, history_start, end_date)
         if max_date_row and max_date_row[0]:
             cutoff_date_obj = max_date_row[0]
             if isinstance(cutoff_date_obj, datetime):
                 cutoff_date_obj = cutoff_date_obj.date()
                 
-            safe_max_date = date.today() - timedelta(days=3) 
+            # Stay 1 day behind to avoid incomplete billing data
+            safe_max_date = date.today() - timedelta(days=1) 
             if cutoff_date_obj > safe_max_date:
                 cutoff_date_obj = safe_max_date
-                
-            cutoff_day = cutoff_date_obj.day
         else:
-            cutoff_date_obj = date.today() - timedelta(days=3)
-            cutoff_day = 0
+            cutoff_date_obj = date.today() - timedelta(days=1)
             
         for s in scopes:
             scope_id = s["scope_id"]
@@ -63,11 +82,11 @@ def run_anomaly_job():
             logger.info(f"Processing Scope: {scope_id}, Tags: {tags}")
             
             # Fetch Aggregated Daily Costs
-            cost_dict = cost_service.get_aggregated_daily_costs(
+            cost_dict = get_aggregated_daily_costs(
                 cursor, scope_id, tags, start_date=history_start, end_date=end_date
             )
             
-            # Format to ML dataset
+            # Format to dataset
             df_data = []
             first_nonzero_date = history_start
             if cost_dict:
@@ -96,7 +115,7 @@ def run_anomaly_job():
                     
                 curr_date += timedelta(days=1)
                 
-            # Run the model
+            # Generate forecast and detect deviations
             days_to_predict = (end_date - cutoff_date_obj).days if df_data else 0
             results = model.process(df_data, days_to_predict, cutoff_date_obj)
             
@@ -107,10 +126,12 @@ def run_anomaly_job():
             for a in anomalies:
                 a["type"] = "cost"
             
+            # Check for Budget Threshold Crossing
             budget = costs_crud.get_budget(cursor, scope_id, tags, base_date)
             if budget and projected_total > budget:
+                # Add a "budget" type anomaly for the end of the month
                 anomalies.append({
-                    "date": max(results["future_forecasts"].keys()),
+                    "date": max(results["future_forecasts"].keys() or [cutoff_date_obj.isoformat()]),
                     "type": "budget",
                     "actual": actual_cumulative_sum,
                     "predicted": round(projected_total, 2),
@@ -118,24 +139,24 @@ def run_anomaly_job():
                     "delta": round(projected_total - budget, 2)
                 })
                 
+                # Identify exactly when the budget will be broken
                 if actual_cumulative_sum < budget:
                     running_sum = actual_cumulative_sum
 
                     for d_str, future_val in sorted(results["future_forecasts"].items()):
                         running_sum += future_val
                         if running_sum > budget:
-                            # Append the day it breaks the budget amount
                             anomalies.append({
                                 "date": d_str,
-                            "type": "budget",
-                            "actual": actual_cumulative_sum,
-                            "predicted": round(running_sum, 2),
-                            "threshold": budget,
-                            "delta": round(running_sum - budget, 2)
-                        })
-                        break
+                                "type": "budget",
+                                "actual": actual_cumulative_sum,
+                                "predicted": round(running_sum, 2),
+                                "threshold": budget,
+                                "delta": round(running_sum - budget, 2)
+                            })
+                            break
             
-            # Save calculations back to database
+            # Save results to database
             if projected_total > 0:
                 costs_crud.save_forecast_snapshot(
                     cursor, 
@@ -156,14 +177,16 @@ def run_anomaly_job():
             cursor.connection.commit()
             
     except Exception as e:
-        logger.error(f"Worker failed: {e}", exc_info=True)
-        cursor.connection.rollback()
+        logger.error(f"Anomaly detection worker failed: {e}", exc_info=True)
+        if cursor and cursor.connection:
+            cursor.connection.rollback()
     finally:
-        # Generator cleanup
-        try:
-            cursor.connection.close()
-        except:
-            pass
+        # Cleanup database resources
+        if cursor and cursor.connection:
+            try:
+                cursor.connection.close()
+            except Exception:
+                pass
 
 if __name__ == "__main__":
     run_anomaly_job()
