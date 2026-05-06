@@ -34,9 +34,50 @@ Povinná pole jsou account_id, name, role.
 ```yaml
 accounts:
 - account_id: '0000000'
-  name: OrbitMain
+  name: AWSMain
   role: arn:aws:iam::00000:role/Reader
 ```
+
+Role na kterou se přihlašuje zadaný IAM User vyžaduje sadu politik AmazonEC2ReadOnlyAccess (pro sběr metrik)
+a sadu oprávnění pro načtení CUR 
+
+```json
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "Statement1",
+            "Effect": "Allow",
+            "Action": [
+                "bcm-data-exports:GetExport",
+                "bcm-data-exports:ListExports",
+                "cur:DescribeReportDefinitions",
+                "sts:GetCallerIdentity",
+                "ce:GetCostAndUsage",
+                "ec2:DescribeInstanceTypes"
+            ],
+            "Resource": [
+                "*"
+            ]
+        },
+        {
+            "Sid": "S3DataAccess",
+            "Effect": "Allow",
+            "Action": [
+                "s3:Get*",
+                "s3:List*"
+            ],
+            "Resource": [
+                "arn:aws:s3:::<bucket-name>",
+                "arn:aws:s3:::<bucket-name>/*"
+            ]
+        }
+    ]
+}
+
+```
+
+
 
 ## Subscriptions.yml
 
@@ -49,6 +90,16 @@ subscriptions:
 - name: Name
   subscription_id: 000-00-0000
 ```
+
+Azure Service Pricipal vyžaduje tato oprávnění:
+
+    -  Reader - pro dotazování API na metadata a metriky
+
+    -  Cost Management Reader - dotazování na cestu k poslednímu proběhlému exportu
+
+    -  Billing Account Reader - dotazování na cestu k poslednímu proběhlému exportu
+
+    -  Storage Blob Data Reader - čtení/stahování exportu z daného úložiště
 
 ## Cost_exports.yml
 
