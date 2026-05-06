@@ -1,7 +1,12 @@
-import json
+"""
+KRR File Parser Module.
+
+This module provides the KRRFileParser class for transforming Robusta KRR JSON output
+into RabbitMQ-compatible ingestion messages.
+"""
+
 import logging
-import yaml
-from typing import List
+from typing import List, Any, Dict
 
 from rabbitmq.message import IngestionMessage
 from krr_collector.message import KRRRecommendationPayload, KRRBatchPayload
@@ -11,16 +16,32 @@ from rabbitmq.connector import RabbitMQClient
 log = logging.getLogger("krr_file_parser")
 
 class KRRFileParser:
-    def __init__(self, krr_data, cluster_info: dict):
+    """
+    Parses Robusta KRR JSON output and prepares it for ingestion.
+    """
+    def __init__(self, krr_data: Dict[str, Any], cluster_info: Dict[str, Any]):
+        """
+        Initialize the parser with KRR data and cluster context.
+
+        Args:
+            krr_data (Dict[str, Any]): The raw JSON output from the KRR tool.
+            cluster_info (Dict[str, Any]): Metadata about the cluster being scanned.
+        """
         self.krr_data = krr_data
         self.cluster_info = cluster_info
 
     def parse_to_rabbitmq(self) -> List[IngestionMessage]:
+        """
+        Transforms the internal KRR data into a list of RabbitMQ ingestion messages.
+
+        Returns:
+            List[IngestionMessage]: A list containing a single batch message with all recommendations.
+        """
 
         provider = self.cluster_info.get('provider', 'unknown')
         account_id = self.cluster_info.get('account_id', 'unknown')
         cluster_id = self.cluster_info.get('cluster_resource_id', 'unknown')
-        cluster_name_conf = self.cluster_info['cluster_name']
+        cluster_name_conf = self.cluster_info.get('cluster_name', 'unknown')
 
         payload_batch = []
         if not self.krr_data:
@@ -47,7 +68,7 @@ class KRRFileParser:
             cur_cpu = current_allocations.get('cpu')
             cur_mem = current_allocations.get('memory')
 
-            # Reccomendations
+            # Recommendations
             recs = scan.get('recommended', {}).get('requests', {})
             # Parse from {"value": 0.01, "severity": "WARNING"}
             rec_cpu = recs.get('cpu', {}).get('value') if isinstance(recs.get('cpu'), dict) else None
@@ -73,7 +94,7 @@ class KRRFileParser:
             payload_batch.append(item.model_dump())
 
         if not payload_batch:
-            log.warning("JSON with no recommendations found.")
+            log.warning("No recommendations parsed from KRR data.")
             return []
 
         log.info(f"Parsed {len(payload_batch)} recommendations.")
