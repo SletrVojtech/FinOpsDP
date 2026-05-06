@@ -1,4 +1,4 @@
-.venv
+.venv*
 .env*
 .log
 .conf
@@ -9,3 +9,7 @@
 secrets.yml
 chart/conf/*
 manifests/
+docs/
+
+.coverage
+.dockerignore
