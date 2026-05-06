@@ -1,3 +1,13 @@
+"""
+FinOps Central Collector CLI.
+
+This script serves as the main entry point for the data collection pipeline.
+It provides a command-line interface to:
+- Run the database loader (RabbitMQ to PostgreSQL).
+- Start the job scheduler for periodic data collection.
+- Manually trigger specific data collectors (AWS, Azure, etc.).
+"""
+
 import argparse
 import logging
 import os
@@ -15,7 +25,10 @@ from registry import load_collectors, COLLECTOR_REGISTRY
 
 def setup_logging() -> logging.Logger:
     """
-    Sets up the logging configuration for the application.
+    Sets up the global logging configuration for the collector application.
+
+    Returns:
+        logging.Logger: The configured logger instance.
     """
     level = logging.INFO
     logging.basicConfig(

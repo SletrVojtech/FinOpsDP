@@ -1,9 +1,17 @@
-import schedule
+"""
+Job Scheduler Module.
+
+This module provides the Scheduler class, which manages the periodic execution
+of data collection jobs based on a YAML configuration file.
+"""
+
 import logging
-import yaml
 import os
 import time
 import datetime
+from typing import Dict, Any, Optional, Callable
+import yaml
+import schedule
 
 log = logging.getLogger(__name__)
 

@@ -1,4 +1,10 @@
-from operator import call
+"""
+Collector Registry Module.
+
+This module provides a registration system for data collectors, allowing
+them to be dynamically discovered and executed via the CLI or scheduler.
+"""
+
 import importlib
 import logging
 from pathlib import Path
