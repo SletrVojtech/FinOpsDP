@@ -1,8 +1,12 @@
+"""
+Metrics Collection Orchestrator.
+
+This script uses Cloud Custodian in-memory execution to collect metrics from
+AWS and Azure accounts and publishes them to RabbitMQ.
+"""
+
 import time
 import logging
-import yaml
-import sys
-import argparse
 from botocore.exceptions import ClientError
 from c7n.policy import PolicyCollection
 from c7n.config import Config
@@ -18,6 +22,8 @@ from rabbitmq.connector import RabbitMQClient
 from rabbitmq.message import IngestionMessage
 from metrics_collector.message_adapters import AdapterFactory
 from metrics_collector.config_parser import ConfigParser
+from registry import register_collector
+from typing import Dict, Any
 
 log = logging.getLogger('metrics_collector')
 
@@ -27,6 +33,17 @@ class CustodianAccountWorker:
     Handles the execution of Cloud Custodian policies for a specific account and region.
     """
     def __init__(self, account, region, policy_data, output_dir, granularity, debug=False):
+        """
+        Initialize the worker.
+
+        Args:
+            account (dict): Account configuration.
+            region (str): Cloud region.
+            policy_data (dict): Policy definitions.
+            output_dir (str): Directory for logs/output.
+            granularity (str): Metrics granularity (e.g., PT5M).
+            debug (bool): Enable debug logging.
+        """
         self.account = account
         self.region = region
         self.policy_data = policy_data
@@ -37,8 +54,13 @@ class CustodianAccountWorker:
         self.policy_counts = {}
         self.provider = account.get('provider')
 
-    def run(self):
-        """Main execution flow for the account/region."""
+    def run(self) -> tuple:
+        """
+        Main execution flow for the account/region.
+
+        Returns:
+            tuple: (policy_counts, success_flag)
+        """
         options = self._setup_options()
         env_vars = self._get_env_vars()
 
@@ -72,8 +94,13 @@ class CustodianAccountWorker:
         
         return self.policy_counts, self.success
 
-    def _setup_options(self):
-        """Initializes Custodian configuration options."""
+    def _setup_options(self) -> Config:
+        """
+        Initializes Custodian configuration options for the current execution.
+
+        Returns:
+            Config: A Cloud Custodian configuration object containing region and output settings.
+        """
         options = Config.empty(
             region=self.region,
             output_dir=self.output_dir,
@@ -87,16 +114,27 @@ class CustodianAccountWorker:
             options['profile'] = self.account['profile']
         return options
 
-    def _get_env_vars(self):
-        """Prepares environment variables (credentials/tags) for the session."""
+    def _get_env_vars(self) -> Dict[str, str]:
+        """
+        Prepares environment variables (credentials and tags) for the cloud session.
+
+        Returns:
+            Dict[str, str]: A dictionary of environment variables to be used during policy execution.
+        """
         env_vars = account_tags(self.account)
         if self.account.get('role') and not isinstance(self.account['role'], str):
             env_vars.update(
                 _get_env_creds(self.account, get_session(self.account, 'custodian', self.region), self.region))
         return env_vars
 
-    def _run_policy(self, policy, mq_client):
-        """Executes a single policy and handles the result ingestion."""
+    def _run_policy(self, policy: Any, mq_client: RabbitMQClient):
+        """
+        Executes a single Cloud Custodian policy and handles result ingestion.
+
+        Args:
+            policy (Any): The Cloud Custodian policy object to execute.
+            mq_client (RabbitMQClient): An active RabbitMQ client for publishing findings.
+        """
         # Force in-memory-pull mode
         if policy.data.get('mode', {}).get('type', 'pull') == 'pull':
             policy.data['mode'] = {'type': 'in-memory-pull'}
@@ -123,9 +161,15 @@ class CustodianAccountWorker:
         log.info("Ran account:%s region:%s policy:%s matched:%d time:%0.2f",
                  self.account['name'], self.region, policy.name, len(resources), time.time() - st)
 
+    def _publish_resource(self, policy: Any, raw_resource: Dict[str, Any], mq_client: RabbitMQClient):
+        """
+        Adapts a single resource to the internal format and publishes it to RabbitMQ.
 
-    def _publish_resource(self, policy, raw_resource, mq_client):
-        """Adapts a resource to the internal format and publishes to RabbitMQ."""
+        Args:
+            policy (Any): The Cloud Custodian policy that matched the resource.
+            raw_resource (Dict[str, Any]): The raw resource data including metrics.
+            mq_client (RabbitMQClient): An active RabbitMQ client for publishing the message.
+        """
         kwargs = {
             'policy_name': policy.name,
             'granularity': self.granularity
@@ -141,7 +185,7 @@ class CustodianAccountWorker:
             **kwargs
         )
         
-        metrics_payload = adapter.to_payloads()
+        metrics_payload = adapter.to_payload()
         msg = IngestionMessage(
             source_module="custodian",
             payload=metrics_payload.model_dump()
@@ -151,33 +195,40 @@ class CustodianAccountWorker:
             message=msg.model_dump_json()
         )
 
+
 def run_account_in_memory(account, region, policy_data, output_dir, granularity, debug=False):
     """
     Worker function for the concurrent executor. 
-    Uses CustodianAccountWorker to handle the internal logic.
+
+    Args:
+        account (dict): Account configuration.
+        region (str): Cloud region.
+        policy_data (dict): Policy definitions.
+        output_dir (str): Directory for logs/output.
+        granularity (str): Metrics granularity.
+        debug (bool): Enable debug logging.
+
+    Returns:
+        tuple: (policy_counts, success_flag)
     """
     worker = CustodianAccountWorker(account, region, policy_data, output_dir, granularity, debug)
     return worker.run()
 
 
-from registry import register_collector
-
 @register_collector("metrics", help_text="Download metrics using Custodian and send to RMQ")
 def run_metrics_collector():
+    """
+    Main entry point for metrics collection across all accounts and regions.
+    """
     try:
         parser = ConfigParser()
-    
         generated_policies, granularity = parser.generate_policies()
-
-
-        POLICY_DATA = {
-            "policies": generated_policies
-        }
-
+        POLICY_DATA = {"policies": generated_policies}
     except Exception as e:
         log.error(f"Error loading policies: {e}")
-        sys.exit(1)
+        raise ValueError(f"Failed to initialize metrics collector: {e}")
 
+    # Load account configurations
     accounts_config, _, _ = init(
         config='.conf/accounts.yml',
         use=None,
@@ -186,7 +237,7 @@ def run_metrics_collector():
         accounts=None, tags=None, policies=None
     )
 
-    azure_config,_,_ = init(
+    azure_config, _, _ = init(
         config='.conf/subscriptions.yml',
         use=None,
         debug=False,
@@ -201,12 +252,11 @@ def run_metrics_collector():
     policy_counts = Counter()
     success = True
 
-    # Run processes
+    # Run processes using ProcessPoolExecutor
     with ProcessPoolExecutor(max_workers=worker_count) as executor:
         futures = {}
         for account in accounts_iterator(accounts_config):
             for region in resolve_regions(account.get('regions', ['all']), account):
-                
                 future = executor.submit(
                     run_account_in_memory,
                     account=account,
@@ -220,21 +270,23 @@ def run_metrics_collector():
         # Collect the results and log failures
         for f in as_completed(futures):
             a, r = futures[f]
-            if f.exception():
-                log.warning(
-                    "Error running policy in %s @ %s exception: %s",
-                    a['name'], r, f.exception())
-                continue
+            try:
+                account_region_pcounts, account_region_success = f.result()
+                for p in account_region_pcounts:
+                    policy_counts[p] += account_region_pcounts[p]
 
-            account_region_pcounts, account_region_success = f.result()
-            for p in account_region_pcounts:
-                policy_counts[p] += account_region_pcounts[p]
-
-            if not account_region_success:
+                if not account_region_success:
+                    success = False
+            except Exception as e:
+                log.warning("Error running policy in %s @ %s exception: %s", a['name'], r, e)
                 success = False
 
     log.info("Policy resource counts %s" % policy_counts)
 
     if not success:
-        sys.exit(1)
+        raise ValueError("Metrics collection completed with errors.")
+
+
+if __name__ == "__main__":
+    run_metrics_collector()
 
