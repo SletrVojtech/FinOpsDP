@@ -14,7 +14,7 @@ def test_crafter_factory():
     # Expect ValueError for unknown provider
     with pytest.raises(ValueError) as exc_info:
         CrafterFactory.get_crafter('gcp.compute')
-    assert "Provider 'gcp' isn't supported" in str(exc_info.value)
+    assert "Provider 'gcp' is not supported" in str(exc_info.value)
 
 def test_craft_name_cleaning():
     # Removes all whitespace and special characters are parsed as '_'

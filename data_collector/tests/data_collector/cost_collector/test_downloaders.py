@@ -1,13 +1,13 @@
 import pytest
 from unittest.mock import MagicMock, patch
-from cost_collector.downloaders import AWS_Export_Worker, Azure_Export_Worker
+from cost_collector.downloaders import AwsExportWorker, AzureExportWorker
 
 @patch('cost_collector.downloaders.get_session')
 @patch('cost_collector.downloaders.os.makedirs')
 def test_aws_export_worker_success(mock_makedirs, mock_get_session):
     # Arrange
     account = {'name': 'Prod Account', 'account_id': '111122223333'}
-    worker = AWS_Export_Worker(account, 'DailyExport', 'eu-central-1', '/tmp')
+    worker = AwsExportWorker(account, 'DailyExport', 'eu-central-1', '/tmp')
 
     mock_session = MagicMock()
     mock_get_session.return_value = mock_session
@@ -60,7 +60,7 @@ def test_aws_export_worker_success(mock_makedirs, mock_get_session):
 @patch('cost_collector.downloaders.os.makedirs')
 def test_azure_export_worker_success(mock_makedirs, mock_open, mock_blob_client, mock_requests_get, mock_credential):
     # Arrange
-    worker = Azure_Export_Worker(scope_type='subscription', scope_id='sub-123', output_dir='/tmp', export_name='AzureDaily')
+    worker = AzureExportWorker(scope_type='subscription', scope_id='sub-123', output_dir='/tmp', export_name='AzureDaily')
 
     # Mock the session token
     mock_token = MagicMock()

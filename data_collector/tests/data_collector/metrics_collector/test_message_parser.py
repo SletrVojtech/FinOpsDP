@@ -39,7 +39,7 @@ def test_azure_vm_adapter_real_data():
         raw_resource=raw_azure_vm, 
         policy_name="azure_vm_cpu_usage_avg"
     )
-    payload = adapter.to_payloads()
+    payload = adapter.to_payload()
 
     # Assert
     assert payload.provider == "azure"
@@ -95,7 +95,7 @@ def test_aws_ec2_adapter_real_data():
         account_id="554882957058",
         region_name="us-east-1"
     )
-    payload = adapter.to_payloads()
+    payload = adapter.to_payload()
 
     # Assert
     assert payload.provider == "aws"

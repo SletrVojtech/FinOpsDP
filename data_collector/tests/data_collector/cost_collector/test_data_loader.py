@@ -70,7 +70,7 @@ def test_distribute_multiday_charges():
     cutoff_date = "2026-03-02 00:00:00"
 
     # Act
-    records = loader._distribute_multiday_charges(mock_multiday_dicts, cutoff_date)
+    records = loader._distribute_multiday_charges(mock_multiday_dicts)
 
     # Assert
     # 30 / 3 days = 10.0 daily cost
