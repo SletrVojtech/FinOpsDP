@@ -46,28 +46,29 @@ def _resolve_data_source(db_cursor, analysis_days: int) -> tuple:
     # Defaults
     table = "metrics"
     val_col = "value"
-
-    if analysis_days > 14:
-        # Prefer aggregates for longer timeframes
-        db_cursor.execute("SELECT TableName FROM DataDictionary WHERE DataType = 'metric' AND Granularity >= '1 hour' ORDER BY Granularity ASC LIMIT 1")
-        row = db_cursor.fetchone()
-        if row:
-            table = row[0]
-            val_col = "max_value"
-            
-    return table, val_col
+    time_col = "timestamp"
+    
+    # Prefer aggregates for longer timeframes
+    db_cursor.execute("SELECT TableName, IsCAGG FROM DataDictionary WHERE DataType = 'metrics' AND retentionduration >= %s::interval ORDER BY Granularity ASC LIMIT 1", (f"{analysis_days} days",))
+    row = db_cursor.fetchone()
+    if row:
+        table = row[0]
+        is_cagg = row[1]
+        val_col = "max_value" if is_cagg else "value"
+        time_col = "bucket" if is_cagg else "timestamp"
+    return table, val_col, time_col
 
 
 def get_telemetry(db_cursor, resource_id: int, analysis_days: int) -> Dict[str, Optional[float]]:
     """Queries for percentiles and aggregated max values."""
-    table, val_col = _resolve_data_source(db_cursor, analysis_days)
+    table, val_col, time_col  = _resolve_data_source(db_cursor, analysis_days)
 
     query = f"""
         WITH time_filtered AS (
             SELECT metrictype as metric_name, {val_col} as val
             FROM {table}
             WHERE entityid = %(resource_id)s
-              AND "timestamp" >= NOW() - (%(days)s * INTERVAL '1 day')
+              AND "{time_col}" >= NOW() - (%(days)s * INTERVAL '1 day')
         )
         SELECT
             (SELECT percentile_cont(0.95) WITHIN GROUP (ORDER BY val) FROM time_filtered WHERE metric_name = 'cpu_usage_max') AS cpu_p95,

@@ -20,7 +20,7 @@ def evaluate_downsizing(
     """
 
     if target_cpu_util <= 0:
-        target_cpu_util = 1.0 # fallback for zero target
+        target_cpu_util = 1.0 
     if target_ram_util <= 0:
         target_ram_util = 1.0
 
