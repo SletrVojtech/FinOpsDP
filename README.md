@@ -11,14 +11,25 @@ A FinOps platform for multi-cloud cost visibility, chargeback, and resource opti
 
 ## Table of Contents
 
-- [Overview](#overview)
-- [Prerequisites](#prerequisites)
-- [Deploying with Helm](#deploying-with-helm)
-- [Local Development (Docker Compose)](#local-development-docker-compose)
-- [Running Tests](#running-tests)
-- [Generating Documentation](#generating-documentation)
-- [Configuration Reference](#configuration-reference)
-- [License](#license)
+- [FinOpsDP](#finopsdp)
+  - [Table of Contents](#table-of-contents)
+  - [Overview](#overview)
+  - [Prerequisites](#prerequisites)
+  - [Deploying with Helm](#deploying-with-helm)
+    - [1. Prepare a secrets file](#1-prepare-a-secrets-file)
+    - [2. (Optional) Customise values](#2-optional-customise-values)
+    - [3. Install / upgrade the release](#3-install--upgrade-the-release)
+    - [4. Verify the rollout](#4-verify-the-rollout)
+    - [5. Uninstall](#5-uninstall)
+  - [Configuration Reference](#configuration-reference)
+  - [Local Development (Docker Compose)](#local-development-docker-compose)
+  - [Running Tests](#running-tests)
+    - [Webapp tests](#webapp-tests)
+    - [Data collector tests](#data-collector-tests)
+  - [Generating Documentation](#generating-documentation)
+    - [Webapp](#webapp)
+    - [Data Collector](#data-collector)
+  - [License](#license)
 
 ---
 
@@ -94,7 +105,7 @@ helm uninstall finops -n finops
 ---
 ## Configuration Reference
 
-Detailed configuration schema for all YAML files (`accounts.yml`, `subscriptions.yml`, `cost_exports.yml`, `kube_clusters.yml`, `scheduler.yml`, `metrics.yml`, `db_config.yml`) and all `.env` files is documented in **[ConfDoc_cs.md](ConfDoc_cs.md)**.
+Detailed configuration schema for all YAML files (`accounts.yml`, `subscriptions.yml`, `cost_exports.yml`, `kube_clusters.yml`, `scheduler.yml`, `metrics.yml`, `db_config.yml`) and all `.env` files is documented in **[ConfDoc_en.md](ConfDoc_en.md)**.
 
 Example configuration files for the Helm chart are provided in **[chart/conf_examples/](chart/conf_examples/)**.
 
@@ -105,7 +116,7 @@ Example configuration files for the Helm chart are provided in **[chart/conf_exa
 ## Local Development (Docker Compose)
 
 For a quick local setup without Kubernetes:
-Set up the environment variables file and fill in your own configuration. (see **[ConfDoc.md](ConfDoc_cs.md)**):
+Set up the environment variables file and fill in your own configuration. (see **[ConfDoc.md](ConfDoc_en.md)**):
 
 
 ```bash
@@ -128,7 +139,7 @@ python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt -r requirements-tests.txt
 
 # Run all tests
-pytest tests/ -v
+python -m pytest tests/
 
 ```
 
@@ -139,7 +150,7 @@ cd data_collector
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt -r requirements-tests.txt
 
-pytest tests/ -v
+python -m pytest tests/ -v
 ```
 
 ---
@@ -148,7 +159,7 @@ pytest tests/ -v
 
 The codebase uses **Google-style docstrings**. The recommended tool is **[pdoc](https://pdoc.dev)** - reads Google style docstrings and runs directly inside each package's existing venv.
 
-Each package is documented independently from inside its own directory.
+Each package is documented independently from inside its own directory. The pdoc dependency is included in `requirements-tests.txt` to avoid bloating the main runtime dependencies.
 
 ### Webapp
 

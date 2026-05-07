@@ -136,7 +136,7 @@ services:
       - .env
       - webapp/.env.web
     command: ["python3", "run_worker.py", "--job", "fbad"]
-    restart: unless-stopped
+    restart: "no"
     depends_on:
       db_init:
         condition: service_completed_successfully

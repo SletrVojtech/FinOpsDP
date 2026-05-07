@@ -202,7 +202,7 @@ measure:
 ## Db_config.yml
 
 Nastavuje definice agregačních tabulek v TimeScaleDB (PostgreSQL) a retenční politiky uchování dat.
-Agregáty jsou v tuto chvíli využívány pouze pro metrics. Pro Cost Exports vychází interval z možností cloud providerů a Azure nepodporuje nižší agregaci než hodinovou. KubeMetrics jsou dotazovány po hodinových oblastech.
+Agregáty jsou v tuto chvíli využívány pouze pro metrics. Pro Cost Exports vychází interval z možností cloud providerů a Azure nepodporuje nižší agregaci než denní. KubeMetrics jsou dotazovány po hodinových oblastech.
 
 ### Ukázkový template
 
