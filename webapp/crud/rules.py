@@ -94,7 +94,7 @@ def set_excluded_patterns(db_cursor, scope_id: int, tags: Dict[str, str], exclud
     query = """
         INSERT INTO Rules (ScopeId, Tags, ExcludedPatterns, RuleType)
         VALUES (%(scope_id)s, %(tags)s::jsonb, %(patterns_json)s::jsonb, 'downsizing_exclusion')
-        ON CONFLICT (ScopeId, Tags)
+        ON CONFLICT (ScopeId, Tags, RuleType)
         DO UPDATE SET ExcludedPatterns = EXCLUDED.ExcludedPatterns, RuleType = 'downsizing_exclusion';
     """
     db_cursor.execute(query, {

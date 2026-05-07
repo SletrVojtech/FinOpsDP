@@ -17,7 +17,7 @@ import pika
 from dotenv import load_dotenv
 
 load_dotenv()
-log = setup_logging()
+
 
 from db_loader.db_loader import DBLoader
 from scheduler import Scheduler
@@ -43,8 +43,9 @@ def setup_logging() -> logging.Logger:
     log.handlers.clear()
     return log
 
+log = setup_logging()
 
-def get_db_connection() -> psycopg2.connection:
+def get_db_connection() -> psycopg2.extensions.connection:
     """
     Builds a connection to the PostgreSQL database.
     Requires DB_HOST, DB_USER, DB_PASSWORD, and DB_NAME to be set.

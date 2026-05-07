@@ -261,7 +261,7 @@ class DatabaseInitializer:
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    initializer = DatabaseInitializer("data_collector/db_init/db_config.yml")
+    initializer = DatabaseInitializer("db_init/db_config.yml")
     try:
         initializer.setup_base_tables()
         initializer.setup_metric_hierarchy()
