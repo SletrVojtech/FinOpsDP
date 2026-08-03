@@ -24,6 +24,7 @@ from metrics_collector.message_adapters import AdapterFactory
 from metrics_collector.config_parser import ConfigParser
 from registry import register_collector
 from typing import Dict, Any
+import policy as _policy_modes  # noqa: F401  # Registers 'in-memory-pull' execution mode
 
 log = logging.getLogger('metrics_collector')
 
